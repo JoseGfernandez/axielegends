@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Nexus Engine - MOBA</title>
+    <link rel="stylesheet" href="/public/css/hub.css">
+    <style>
+        * { margin:0; padding:0; overflow:hidden; }
+        body { background:#0a0a1a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { display:block; width:100vw; height:100vh; position:absolute; top:0; left:0; z-index: 1; }
+    </style>
+</head>
+<body>
+    <!-- Interfaz HUB integrada directamente -->
+    <div id="axie-hub">
+        <div id="axie-skills">
+            <div class="skill-slot" data-skill="q"><span class="skill-key">Q</span><span class="skill-icon">🌀</span><span class="skill-level">1</span></div>
+            <div class="skill-slot" data-skill="w"><span class="skill-key">W</span><span class="skill-icon">⚡</span><span class="skill-level">1</span></div>
+            <div class="skill-slot" data-skill="e"><span class="skill-key">E</span><span class="skill-icon">🛡️</span><span class="skill-level">1</span></div>
+            <div class="skill-slot" data-skill="r"><span class="skill-key">R</span><span class="skill-icon">🔥</span><span class="skill-level">1</span></div>
+        </div>
+        <div id="axie-portrait">
+            <div class="placeholder" style="color:#88aaff; font-size:12px; text-align:center;">🐱<br>AXIE</div>
+        </div>
+        <div id="axie-info">
+            <div id="axie-name">
+                <span class="name" style="color:#fff; font-size:18px; font-weight:bold;">⚔️ Puff</span>
+                <span class="level" style="background:#4488ff; color:#fff; font-size:12px; font-weight:bold; padding:2px 10px; border-radius:12px;">Nv. 1</span>
+                <div class="exp-bar" style="flex:1; height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden; margin-left:8px;">
+                    <div class="exp-fill" id="exp-fill" style="width: 0%; height:100%; background:linear-gradient(90deg, #ffaa44, #ffdd88);"></div>
+                </div>
+            </div>
+            <div id="health-bar-container" class="bar-container" style="width:100%; height:18px; border-radius:4px; overflow:hidden; position:relative; background:rgba(255,255,255,0.06);">
+                <div class="bar" id="health-bar" style="width: 100%; height:100%; background:linear-gradient(90deg, #ff2244, #ff6644);"></div>
+                <div class="bar-label" id="health-label" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#fff; font-size:11px; font-weight:bold;">❤️ 500 / 500</div>
+            </div>
+            <div id="energy-bar-container" class="bar-container" style="width:100%; height:18px; border-radius:4px; overflow:hidden; position:relative; background:rgba(255,255,255,0.06); margin-top:2px;">
+                <div class="bar" id="energy-bar" style="width: 100%; height:100%; background:linear-gradient(90deg, #2244ff, #4488ff);"></div>
+                <div class="bar-label" id="energy-label" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#fff; font-size:11px; font-weight:bold;">🔵 100 / 100</div>
+            </div>
+            <div id="axie-stats" style="display:flex; gap:16px; margin-top:2px;">
+                <div class="stat" style="color:#88aaff; font-size:11px; font-weight:bold;">⚔️ Ataque: <span id="stat-attack" style="color:#fff;">20</span></div>
+                <div class="stat" style="color:#88aaff; font-size:11px; font-weight:bold;">🛡️ Defensa: <span id="stat-defense" style="color:#fff;">10</span></div>
+                <div class="stat" style="color:#88aaff; font-size:11px; font-weight:bold;">💨 Velocidad: <span id="stat-speed" style="color:#fff;">1.5</span></div>
+            </div>
+        </div>
+        <div id="axie-items" style="display:flex; gap:4px; flex-shrink:0; margin-left:8px;">
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">1</span></div>
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">2</span></div>
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">3</span></div>
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">4</span></div>
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">5</span></div>
+            <div class="item-slot" style="width:44px; height:44px; background:rgba(255,255,255,0.04); border:1px solid rgba(136,170,255,0.15); border-radius:4px; display:flex; align-items:center; justify-content:center; position:relative;"><span class="item-icon" style="font-size:18px;">⬜</span><span class="item-key" style="position:absolute; bottom:2px; right:4px; font-size:8px; color:rgba(255,255,255,0.3);">6</span></div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="/src/main.js"></script>
+    <script src="/public/js/hub-control.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+﻿# Dependencias
+node_modules/
+package-lock.json
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de respaldo
+*.log
+*.tmp
+*.bak
+*.backup
+*.old
+respaldo_*/
+
+# Editor
+.vscode/
+.idea/
+
+# Otros
+dist/
+build/
+*.zip
+*.rar

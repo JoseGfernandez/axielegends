@@ -1,0 +1,910 @@
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// =============================================
+// CONFIGURACIÓN
+// =============================================
+const CONFIG = {
+    gravedad: -20,
+    camaraAngulo: 60,
+    camaraDistancia: 18,
+    camaraAltura: 14,
+    SPAWN_DELAY: 15,
+    towerRange: 6,
+    towerDamage: 20,
+    towerFireRate: 1.5,
+    projectileSpeed: 8,
+    towerHealth: 500,
+    nexusHealth: 1000,
+    meleeSpacing: 1.1,
+    mageSpacing: 0.9,
+    meleeSpeed: 1.4,
+    mageSpeed: 1.4,
+    axieSpeed: 1.5,
+    attackRange: 4.0,
+    attackDamage: 20,
+    attackSpeed: 1.0,
+};
+
+// =============================================
+// DATOS DEL AXIE PARA EL HUB
+// =============================================
+const axieData = {
+    name: 'Puff',
+    level: 1,
+    maxHealth: 500,
+    health: 500,
+    maxEnergy: 100,
+    energy: 100,
+    attack: 20,
+    defense: 10,
+    speed: 1.5,
+    items: [null, null, null, null, null, null],
+    exp: 0,
+    expToNext: 100,
+};
+
+// =============================================
+// FUNCIONES DEL HUB
+// =============================================
+function updateHub() {
+    const healthPercent = (axieData.health / axieData.maxHealth) * 100;
+    const energyPercent = (axieData.energy / axieData.maxEnergy) * 100;
+    
+    const healthBar = document.getElementById('health-bar');
+    const energyBar = document.getElementById('energy-bar');
+    const healthLabel = document.getElementById('health-label');
+    const energyLabel = document.getElementById('energy-label');
+    
+    if (healthBar) healthBar.style.width = `${Math.max(0, healthPercent)}%`;
+    if (energyBar) energyBar.style.width = `${Math.max(0, energyPercent)}%`;
+    if (healthLabel) healthLabel.textContent = `❤️ ${Math.floor(axieData.health)} / ${axieData.maxHealth}`;
+    if (energyLabel) energyLabel.textContent = `🔵 ${Math.floor(axieData.energy)} / ${axieData.maxEnergy}`;
+    
+    const attackEl = document.getElementById('stat-attack');
+    const defenseEl = document.getElementById('stat-defense');
+    const speedEl = document.getElementById('stat-speed');
+    if (attackEl) attackEl.textContent = axieData.attack;
+    if (defenseEl) defenseEl.textContent = axieData.defense;
+    if (speedEl) speedEl.textContent = axieData.speed.toFixed(1);
+    
+    const levelEl = document.querySelector('#axie-name .level');
+    if (levelEl) levelEl.textContent = `Nv. ${axieData.level}`;
+    
+    const expFill = document.getElementById('exp-fill');
+    if (expFill) {
+        const percent = (axieData.exp / axieData.expToNext) * 100;
+        expFill.style.width = `${Math.min(100, percent)}%`;
+    }
+    
+    const slots = document.querySelectorAll('#axie-items .item-slot');
+    slots.forEach((slot, index) => {
+        const item = axieData.items[index];
+        const icon = slot.querySelector('.item-icon');
+        if (item) {
+            slot.classList.add('has-item');
+            if (icon) icon.textContent = item.icon || '🟦';
+        } else {
+            slot.classList.remove('has-item');
+            if (icon) icon.textContent = '⬜';
+        }
+    });
+}
+
+// =============================================
+// SISTEMA DE HABILIDADES
+// =============================================
+const skillData = {
+    q: { name: 'Garra Salvaje', level: 1, maxLevel: 5, cooldown: 0, maxCooldown: 4, damage: 25 },
+    w: { name: 'Rugido', level: 1, maxLevel: 5, cooldown: 0, maxCooldown: 6, damage: 0 },
+    e: { name: 'Escudo', level: 1, maxLevel: 5, cooldown: 0, maxCooldown: 8, damage: 0 },
+    r: { name: 'Furia Bestial', level: 1, maxLevel: 3, cooldown: 0, maxCooldown: 12, damage: 50 },
+};
+
+let skillPoints = 1;
+
+function useSkill(skillKey) {
+    const skill = skillData[skillKey];
+    if (!skill) return;
+    if (skill.cooldown > 0) {
+        console.log(`⏳ ${skill.name} en cooldown (${Math.ceil(skill.cooldown)}s)`);
+        return;
+    }
+    console.log(`⚡ Usando ${skill.name} (Nv. ${skill.level})`);
+    
+    if (skillKey === 'q') {
+        const damage = skill.damage + (skill.level - 1) * 5;
+        let hitCount = 0;
+        if (typeof enemigos !== 'undefined') {
+            for (const enemy of enemigos) {
+                if (enemy.isDead) continue;
+                if (playerModel) {
+                    const dist = playerModel.position.distanceTo(enemy.group.position);
+                    if (dist < 5) {
+                        enemy.health -= damage;
+                        enemy.updateHealthBar();
+                        if (enemy.health <= 0) enemy.die();
+                        hitCount++;
+                    }
+                }
+            }
+        }
+        console.log(`💥 Daño ${damage} a ${hitCount} enemigos`);
+    } else if (skillKey === 'w') {
+        const boost = 5 + (skill.level - 1) * 3;
+        axieData.attack += boost;
+        console.log(`🐻 Ataque +${boost} (${axieData.attack})`);
+        setTimeout(() => {
+            axieData.attack -= boost;
+            updateHub();
+        }, 5000);
+    } else if (skillKey === 'e') {
+        const heal = 30 + (skill.level - 1) * 20;
+        axieData.health = Math.min(axieData.maxHealth, axieData.health + heal);
+        console.log(`🛡️ +${heal} HP (${axieData.health}/${axieData.maxHealth})`);
+    } else if (skillKey === 'r') {
+        const damage = skill.damage + (skill.level - 1) * 25;
+        let hitCount = 0;
+        if (typeof enemigos !== 'undefined') {
+            for (const enemy of enemigos) {
+                if (enemy.isDead) continue;
+                if (playerModel) {
+                    const dist = playerModel.position.distanceTo(enemy.group.position);
+                    if (dist < 6) {
+                        enemy.health -= damage;
+                        enemy.updateHealthBar();
+                        if (enemy.health <= 0) enemy.die();
+                        hitCount++;
+                    }
+                }
+            }
+        }
+        console.log(`🔥 DEFINITIVA! ${damage} daño a ${hitCount} enemigos`);
+    }
+    
+    skill.cooldown = skill.maxCooldown;
+    updateHub();
+}
+
+function levelUpSkill(skillKey) {
+    const skill = skillData[skillKey];
+    if (!skill) return;
+    if (skillPoints <= 0) { console.log('❌ Sin puntos'); return; }
+    if (skill.level >= skill.maxLevel) { console.log(`❌ ${skill.name} al máximo`); return; }
+    skill.level++;
+    skillPoints--;
+    console.log(`✅ ${skill.name} → Nv. ${skill.level}`);
+    updateHub();
+    const nameEl = document.querySelector('#axie-name .name');
+    if (nameEl && skillPoints > 0) {
+        nameEl.textContent = `⚔️ Puff ✨+${skillPoints}`;
+    } else if (nameEl) {
+        nameEl.textContent = '⚔️ Puff';
+    }
+}
+
+function addExp(amount) {
+    axieData.exp += amount;
+    while (axieData.exp >= axieData.expToNext) {
+        axieData.exp -= axieData.expToNext;
+        axieData.level++;
+        axieData.expToNext = Math.floor(axieData.expToNext * 1.3) + 50;
+        axieData.maxHealth += 30;
+        axieData.health = Math.min(axieData.health + 30, axieData.maxHealth);
+        axieData.attack += 2;
+        axieData.defense += 1;
+        skillPoints++;
+        console.log(`🎉 Nv. ${axieData.level}! Puntos: ${skillPoints}`);
+    }
+    updateHub();
+}
+
+// =============================================
+// EVENTOS DE TECLADO Y CLICK
+// =============================================
+document.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (['q', 'w', 'e', 'r'].includes(key)) {
+        useSkill(key);
+        e.preventDefault();
+    }
+});
+
+// Inicializar HUB
+setTimeout(() => {
+    updateHub();
+    const nameEl = document.querySelector('#axie-name .name');
+    if (nameEl && skillPoints > 0) {
+        nameEl.textContent = `⚔️ Puff ✨+${skillPoints}`;
+    }
+    console.log('✅ HUB iniciado');
+}, 100);
+
+document.querySelectorAll('#axie-skills .skill-slot').forEach(slot => {
+    slot.addEventListener('click', () => {
+        levelUpSkill(slot.dataset.skill);
+    });
+});
+
+// =============================================
+// ESCENA, CÁMARA Y RENDERER
+// =============================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.Fog(0x0a0a1a, 35, 55);
+
+const frustumSize = 7.2;
+const aspect = window.innerWidth / window.innerHeight;
+const camera = new THREE.OrthographicCamera(
+    -frustumSize * aspect,
+    frustumSize * aspect,
+    frustumSize,
+    -frustumSize,
+    0.1,
+    100
+);
+camera.zoom = 1.0;
+
+const CAMERA_OFFSET = new THREE.Vector3(
+    Math.sin(60 * Math.PI / 180) * 18,
+    14,
+    Math.cos(60 * Math.PI / 180) * 18
+);
+
+let cameraSmoothPos = new THREE.Vector3(0, 0, 0);
+let cameraSmoothTarget = new THREE.Vector3(0, 0, 0);
+
+function updateCameraPosition() {
+    if (!playerModel) return;
+    const targetPos = playerModel.position;
+    const targetCamPos = new THREE.Vector3(
+        targetPos.x + CAMERA_OFFSET.x,
+        targetPos.y + CAMERA_OFFSET.y,
+        targetPos.z + CAMERA_OFFSET.z
+    );
+    cameraSmoothPos.lerp(targetCamPos, 0.12);
+    cameraSmoothTarget.lerp(targetPos, 0.12);
+    camera.position.copy(cameraSmoothPos);
+    camera.lookAt(cameraSmoothTarget);
+    camera.updateProjectionMatrix();
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
+renderer.shadowMap.enabled = false;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.prepend(renderer.domElement);
+
+// =============================================
+// LUCES
+// =============================================
+scene.add(new THREE.AmbientLight(0x404060, 0.9));
+const mainLight = new THREE.DirectionalLight(0xffeedd, 2);
+mainLight.position.set(15, 25, 10);
+scene.add(mainLight);
+const fillLight = new THREE.DirectionalLight(0x4488ff, 0.3);
+fillLight.position.set(-10, 10, -10);
+scene.add(fillLight);
+
+// =============================================
+// MAPA
+// =============================================
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 58),
+    new THREE.MeshStandardMaterial({ color: 0x1a2a2a, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.5;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(40, 20, 0x446688, 0x224466);
+grid.position.y = -0.45;
+scene.add(grid);
+
+const lane = new THREE.Mesh(
+    new THREE.PlaneGeometry(10, 52),
+    new THREE.MeshStandardMaterial({ color: 0x3a5a3a, roughness: 0.8 })
+);
+lane.rotation.x = -Math.PI / 2;
+lane.position.set(0, -0.45, 0);
+scene.add(lane);
+
+// =============================================
+// MINION
+// =============================================
+class Minion {
+    constructor(x, z, isEnemy = false, tipo = 'melee') {
+        this.isEnemy = isEnemy;
+        this.tipo = tipo;
+        this.maxHealth = tipo === 'mage' ? 60 : 100;
+        this.health = this.maxHealth;
+        this.speed = 1.4;
+        this.direction = isEnemy ? -1 : 1;
+        this.attackDamage = tipo === 'mage' ? 15 : 10;
+        this.attackRange = tipo === 'mage' ? 3.5 : 1.5;
+        this.attackCooldown = 0;
+        this.attackSpeed = tipo === 'mage' ? 1.5 : 1.0;
+        this.isDead = false;
+        this.type = 'minion';
+        
+        const scale = 0.5;
+        const color = isEnemy ? 0xff5555 : 0x5588ff;
+        
+        this.group = new THREE.Group();
+        
+        const body = new THREE.Mesh(
+            new THREE.SphereGeometry(0.3 * scale, 8, 8),
+            new THREE.MeshStandardMaterial({ color, roughness: 0.6 })
+        );
+        body.scale.set(0.9, 1.2, 0.8);
+        body.position.y = 0.5 * scale;
+        this.group.add(body);
+        
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22 * scale, 8, 8),
+            new THREE.MeshStandardMaterial({ color, roughness: 0.5 })
+        );
+        head.scale.set(1, 0.9, 0.9);
+        head.position.set(0, 0.9 * scale, 0);
+        this.group.add(head);
+        
+        const barGeo = new THREE.PlaneGeometry(0.8, 0.08);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 1.3 * scale;
+        this.group.add(this.healthBar);
+        
+        this.group.rotation.y = isEnemy ? Math.PI : 0;
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        this.healthBar.material.color.setHex(percent > 0.3 ? 0x44ff44 : 0xff4444);
+    }
+    
+    update(delta, enemies) {
+        if (this.isDead) return;
+        this.attackCooldown -= delta;
+        
+        let closest = null;
+        let closestDist = this.attackRange + 1;
+        for (const enemy of enemies) {
+            if (enemy.isDead) continue;
+            const dist = this.group.position.distanceTo(enemy.group.position);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = enemy;
+            }
+        }
+        
+        if (closest && closestDist <= this.attackRange) {
+            if (this.attackCooldown <= 0) {
+                closest.health -= this.attackDamage;
+                closest.updateHealthBar();
+                this.attackCooldown = this.attackSpeed;
+                if (closest.health <= 0 && closest.die) closest.die();
+            }
+        } else {
+            let newZ = this.group.position.z + this.direction * this.speed * delta;
+            if (newZ > 26) newZ = 26;
+            if (newZ < -26) newZ = -26;
+            this.group.position.z = newZ;
+        }
+        this.updateHealthBar();
+    }
+    
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.group.visible = false;
+        // Ganar experiencia al matar un minion
+        addExp(20);
+    }
+}
+
+// =============================================
+// TORRE
+// =============================================
+class SimpleTower {
+    constructor(x, z, isEnemy = false) {
+        this.isEnemy = isEnemy;
+        this.maxHealth = 500;
+        this.health = this.maxHealth;
+        this.isDead = false;
+        this.range = 6;
+        this.damage = 20;
+        this.fireRate = 1.5;
+        this.cooldown = 0;
+        this.type = 'tower';
+        this.group = new THREE.Group();
+        
+        const color = isEnemy ? 0xcc4444 : 0x4488cc;
+        const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.8, 1.0, 1.5, 8),
+            new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 })
+        );
+        body.position.y = 0.75;
+        this.group.add(body);
+        
+        const gem = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.2),
+            new THREE.MeshStandardMaterial({
+                color: isEnemy ? 0xff4444 : 0x4488ff,
+                emissive: isEnemy ? 0xff4444 : 0x4488ff,
+                emissiveIntensity: 1.0
+            })
+        );
+        gem.position.y = 1.6;
+        this.group.add(gem);
+        this.gem = gem;
+        
+        const barGeo = new THREE.PlaneGeometry(1.2, 0.08);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 2.2;
+        this.group.add(this.healthBar);
+        
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        this.healthBar.material.color.setHex(percent > 0.3 ? 0x44ff44 : 0xff4444);
+    }
+    
+    takeDamage(damage) {
+        if (this.isDead) return;
+        this.health -= damage;
+        this.updateHealthBar();
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isDead = true;
+            this.group.visible = false;
+        }
+    }
+}
+
+// =============================================
+// NEXO
+// =============================================
+class SimpleNexus {
+    constructor(x, z, isEnemy = false) {
+        this.isEnemy = isEnemy;
+        this.maxHealth = 1000;
+        this.health = this.maxHealth;
+        this.isDead = false;
+        this.type = 'nexus';
+        this.group = new THREE.Group();
+        
+        const color = isEnemy ? 0x882222 : 0x224488;
+        const base = new THREE.Mesh(
+            new THREE.CylinderGeometry(3, 3.5, 0.5, 24),
+            new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.5 })
+        );
+        base.position.y = 0;
+        this.group.add(base);
+        
+        const nexus = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5, 24, 24),
+            new THREE.MeshStandardMaterial({
+                color: isEnemy ? 0xff4444 : 0x4488ff,
+                emissive: isEnemy ? 0xff4444 : 0x4488ff,
+                emissiveIntensity: 0.8,
+                transparent: true,
+                opacity: 0.85
+            })
+        );
+        nexus.position.y = 1.5;
+        this.group.add(nexus);
+        
+        const barGeo = new THREE.PlaneGeometry(2.5, 0.1);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 2.8;
+        this.group.add(this.healthBar);
+        
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        this.healthBar.material.color.setHex(percent > 0.3 ? 0x44ff44 : 0xff4444);
+    }
+    
+    takeDamage(damage) {
+        if (this.isDead) return;
+        this.health -= damage;
+        this.updateHealthBar();
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isDead = true;
+            this.group.visible = false;
+        }
+    }
+}
+
+// Crear torres y nexos
+const nexusAliado = new SimpleNexus(0, -26, false);
+const nexusEnemigo = new SimpleNexus(0, 26, true);
+
+const towers = [];
+const towerPositions = [
+    [-3.5, -18, false],
+    [-3.5, -6, false],
+    [3.5, 18, true],
+    [3.5, 6, true]
+];
+for (const [x, z, isEnemy] of towerPositions) {
+    towers.push(new SimpleTower(x, z, isEnemy));
+}
+
+// =============================================
+// SISTEMA DE OLEADAS
+// =============================================
+const aliados = [];
+const enemigos = [];
+let waveNumber = 1;
+let waveCooldown = 0;
+const WAVE_DELAY = 1.5;
+let gameStarted = false;
+let startTimer = CONFIG.SPAWN_DELAY;
+
+function spawnWave() {
+    for (let i = aliados.length - 1; i >= 0; i--) {
+        if (aliados[i].isDead) {
+            scene.remove(aliados[i].group);
+            aliados.splice(i, 1);
+        }
+    }
+    for (let i = enemigos.length - 1; i >= 0; i--) {
+        if (enemigos[i].isDead) {
+            scene.remove(enemigos[i].group);
+            enemigos.splice(i, 1);
+        }
+    }
+    
+    const meleeCount = waveNumber === 1 ? 5 : 3;
+    const mageCount = waveNumber === 1 ? 3 : 2;
+    console.log(`⚔️ OLEADA ${waveNumber}: ${meleeCount} Melee + ${mageCount} Mage`);
+    const waveDiv = document.getElementById('wave-display');
+    if (waveDiv) waveDiv.textContent = `⚔️ OLEADA ${waveNumber}`;
+    
+    const spacing = 1.1;
+    const mageSpacing = 0.9;
+    const totalMelee = (meleeCount - 1) * spacing;
+    const totalMage = (mageCount - 1) * mageSpacing;
+    
+    for (let i = 0; i < meleeCount; i++) {
+        const x = -totalMelee / 2 + i * spacing;
+        const z = -18 - i * 0.3;
+        aliados.push(new Minion(x, z, false, 'melee'));
+    }
+    for (let i = 0; i < mageCount; i++) {
+        const x = -totalMage / 2 + i * mageSpacing;
+        const z = -18 - meleeCount * 0.3 - 1.0 - i * 0.2;
+        aliados.push(new Minion(x, z, false, 'mage'));
+    }
+    
+    for (let i = 0; i < meleeCount; i++) {
+        const x = -totalMelee / 2 + i * spacing;
+        const z = 18 + i * 0.3;
+        enemigos.push(new Minion(x, z, true, 'melee'));
+    }
+    for (let i = 0; i < mageCount; i++) {
+        const x = -totalMage / 2 + i * mageSpacing;
+        const z = 18 + meleeCount * 0.3 + 1.0 + i * 0.2;
+        enemigos.push(new Minion(x, z, true, 'mage'));
+    }
+    
+    waveNumber++;
+}
+
+// =============================================
+// UI
+// =============================================
+const timerDiv = document.createElement('div');
+timerDiv.id = 'timer-display';
+timerDiv.style.cssText = `
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    color: #44ff88; font-family: 'Courier New', monospace; font-size: 28px;
+    font-weight: bold; background: rgba(0,0,0,0.8); padding: 8px 24px;
+    border-radius: 12px; z-index: 100; pointer-events: none;
+    border: 2px solid rgba(68,255,136,0.3);
+`;
+timerDiv.textContent = '00:00';
+document.body.appendChild(timerDiv);
+
+const fpsDiv = document.createElement('div');
+fpsDiv.id = 'fps-display';
+fpsDiv.style.cssText = `
+    position: fixed; top: 20px; right: 20px;
+    color: #88aaff; font-family: 'Courier New', monospace; font-size: 18px;
+    background: rgba(0,0,0,0.7); padding: 6px 14px;
+    border-radius: 8px; z-index: 100; pointer-events: none;
+`;
+fpsDiv.textContent = 'FPS: 0';
+document.body.appendChild(fpsDiv);
+
+const waveDiv = document.createElement('div');
+waveDiv.id = 'wave-display';
+waveDiv.style.cssText = `
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+    color: #ffaa44; font-family: 'Courier New', monospace; font-size: 16px;
+    background: rgba(0,0,0,0.7); padding: 4px 16px;
+    border-radius: 8px; z-index: 100; pointer-events: none;
+`;
+waveDiv.textContent = '⏳ 15s';
+document.body.appendChild(waveDiv);
+
+// =============================================
+// JUGADOR
+// =============================================
+let playerModel = null;
+let targetPosition = null;
+let isMovingToTarget = false;
+let playerSpeed = CONFIG.axieSpeed;
+const playerSpawnPosition = new THREE.Vector3(0, 0, -20);
+let smoothPlayerPos = new THREE.Vector3(0, 0, -20);
+
+let isDragging = false;
+let isMouseDown = false;
+let mouseDownPos = { x: 0, y: 0 };
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// ===== INTERSECCIÓN CON SUELO =====
+function getGroundIntersection(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const point = new THREE.Vector3();
+    const intersectPoint = raycaster.ray.intersectPlane(plane, point);
+    if (intersectPoint) {
+        intersectPoint.x = Math.max(-17, Math.min(17, intersectPoint.x));
+        intersectPoint.z = Math.max(-27, Math.min(27, intersectPoint.z));
+        return intersectPoint;
+    }
+    return null;
+}
+
+// ===== EVENTOS =====
+renderer.domElement.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+        isMouseDown = true;
+        isDragging = false;
+        mouseDownPos.x = e.clientX;
+        mouseDownPos.y = e.clientY;
+    }
+});
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+    if (isMouseDown) {
+        const dx = e.clientX - mouseDownPos.x;
+        const dy = e.clientY - mouseDownPos.y;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) isDragging = true;
+    }
+});
+
+renderer.domElement.addEventListener('mouseup', (e) => {
+    if (e.button === 0) {
+        if (!isDragging && playerModel) {
+            const point = getGroundIntersection(e);
+            if (point) {
+                targetPosition = point.clone();
+                isMovingToTarget = true;
+            }
+        }
+        isMouseDown = false;
+        isDragging = false;
+    }
+});
+
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// =============================================
+// CREAR AXIE (SIMPLE)
+// =============================================
+console.log('🐱 Creando Axie...');
+
+const axieMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 1.2, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.2 })
+);
+axieMesh.position.copy(playerSpawnPosition);
+scene.add(axieMesh);
+playerModel = axieMesh;
+smoothPlayerPos.copy(playerSpawnPosition);
+
+console.log('✅ Axie creado');
+console.log('📌 Click derecho en el suelo → MOVERSE');
+console.log('🎯 HUB visible en la parte inferior');
+
+// =============================================
+// OCULTAR CARGA
+// =============================================
+function hideLoading() {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.opacity = '0';
+        setTimeout(() => {
+            loading.style.display = 'none';
+        }, 500);
+    }
+}
+
+// =============================================
+// LOOP PRINCIPAL
+// =============================================
+let frameCounter = 0;
+let lastTime = 0;
+let gameTime = 0;
+let realFPS = 0;
+let fpsCounter = 0;
+let fpsTimer = 0;
+
+function gameLoop(time) {
+    const delta = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+    frameCounter++;
+    gameTime += delta;
+    
+    timerDiv.textContent = `${Math.floor(gameTime / 60).toString().padStart(2, '0')}:${Math.floor(gameTime % 60).toString().padStart(2, '0')}`;
+    
+    fpsCounter++;
+    fpsTimer += delta;
+    if (fpsTimer >= 1.0) {
+        realFPS = Math.round(fpsCounter / fpsTimer);
+        fpsCounter = 0;
+        fpsTimer = 0;
+        fpsDiv.textContent = `FPS: ${realFPS}`;
+    }
+    
+    // ===== MOVIMIENTO =====
+    if (playerModel) {
+        if (isMovingToTarget && targetPosition) {
+            const dx = targetPosition.x - smoothPlayerPos.x;
+            const dz = targetPosition.z - smoothPlayerPos.z;
+            const dist = Math.sqrt(dx*dx + dz*dz);
+            
+            if (dist < 0.05) {
+                smoothPlayerPos.copy(targetPosition);
+                isMovingToTarget = false;
+                targetPosition = null;
+            } else {
+                const moveSpeed = playerSpeed * delta;
+                const stepX = (dx / dist) * moveSpeed;
+                const stepZ = (dz / dist) * moveSpeed;
+                if (Math.abs(stepX) > Math.abs(dx)) smoothPlayerPos.x = targetPosition.x;
+                else smoothPlayerPos.x += stepX;
+                if (Math.abs(stepZ) > Math.abs(dz)) smoothPlayerPos.z = targetPosition.z;
+                else smoothPlayerPos.z += stepZ;
+                
+                const angle = Math.atan2(dx, dz);
+                playerModel.rotation.y = angle;
+            }
+            playerModel.position.copy(smoothPlayerPos);
+        } else if (smoothPlayerPos) {
+            playerModel.position.copy(smoothPlayerPos);
+        }
+    }
+    
+    // ===== JUEGO =====
+    if (!gameStarted) {
+        startTimer -= delta;
+        waveDiv.textContent = `⏳ ${Math.ceil(startTimer)}s`;
+        if (startTimer <= 0) {
+            gameStarted = true;
+            spawnWave();
+        }
+        if (playerModel) updateCameraPosition();
+        renderer.render(scene, camera);
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
+    // Actualizar torres
+    for (const tower of towers) {
+        if (tower.isDead) continue;
+        tower.cooldown -= delta;
+        const enemiesTarget = tower.isEnemy ? aliados : enemigos;
+        let closest = null;
+        let closestDist = tower.range + 1;
+        for (const enemy of enemiesTarget) {
+            if (enemy.isDead) continue;
+            const dist = tower.group.position.distanceTo(enemy.group.position);
+            if (dist < closestDist && dist <= tower.range) {
+                closestDist = dist;
+                closest = enemy;
+            }
+        }
+        if (closest && tower.cooldown <= 0) {
+            closest.health -= tower.damage;
+            closest.updateHealthBar();
+            tower.cooldown = tower.fireRate;
+            if (closest.health <= 0 && closest.die) closest.die();
+        }
+    }
+    
+    // Actualizar minions
+    if (frameCounter % 2 === 0) {
+        for (const m of aliados) {
+            m.update(delta, enemigos);
+        }
+        for (const m of enemigos) {
+            m.update(delta, aliados);
+        }
+    }
+    
+    // Verificar oleadas
+    const aliveAliados = aliados.filter(m => !m.isDead);
+    const aliveEnemigos = enemigos.filter(m => !m.isDead);
+    if (aliveAliados.length === 0 || aliveEnemigos.length === 0) {
+        waveCooldown += delta;
+        if (waveCooldown > WAVE_DELAY) {
+            waveCooldown = 0;
+            spawnWave();
+        }
+    } else {
+        waveCooldown = 0;
+    }
+    
+    // Actualizar habilidades (cooldowns)
+    for (const key in skillData) {
+        if (skillData[key].cooldown > 0) {
+            skillData[key].cooldown -= delta;
+            if (skillData[key].cooldown < 0) skillData[key].cooldown = 0;
+        }
+    }
+    
+    if (playerModel) updateCameraPosition();
+    renderer.render(scene, camera);
+    requestAnimationFrame(gameLoop);
+}
+
+// =============================================
+window.addEventListener('resize', () => {
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.left = -7.2 * aspect;
+    camera.right = 7.2 * aspect;
+    camera.top = 7.2;
+    camera.bottom = -7.2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// =============================================
+// INICIAR
+// =============================================
+console.log('');
+console.log('🐱 AXIE LEGENDS - CON HUB');
+console.log('========================');
+console.log('📌 Click derecho en el suelo → MOVERSE');
+console.log('📌 Q/W/E/R → Usar habilidades');
+console.log('📌 Click en habilidad → Subir nivel');
+console.log('');
+
+hideLoading();
+updateCameraPosition();
+requestAnimationFrame(gameLoop);
+
+// Exponer para pruebas
+window.axie = {
+    data: axieData,
+    addExp: addExp,
+    useSkill: useSkill,
+    levelUpSkill: levelUpSkill,
+    updateHub: updateHub,
+};
+console.log('💡 Pruebas: window.axie.addExp(100)');

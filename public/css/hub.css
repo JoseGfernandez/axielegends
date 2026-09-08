@@ -1,0 +1,222 @@
+﻿#axie-hub {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 85%;
+    max-width: 1100px;
+    min-height: 120px;
+    background: rgba(0, 0, 0, 0.85);
+    border-radius: 12px;
+    border: 2px solid rgba(68, 136, 255, 0.3);
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    z-index: 500;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    user-select: none;
+    pointer-events: auto;
+    backdrop-filter: blur(10px);
+    gap: 12px;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+#axie-skills {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+#axie-skills .skill-slot {
+    width: 52px;
+    height: 52px;
+    background: rgba(255,255,255,0.06);
+    border: 2px solid rgba(136,170,255,0.2);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+#axie-skills .skill-slot:hover {
+    border-color: #88aaff;
+    background: rgba(68,136,255,0.15);
+    transform: scale(1.05);
+}
+
+#axie-skills .skill-slot .skill-key {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    color: rgba(255,255,255,0.4);
+}
+
+#axie-skills .skill-slot .skill-icon {
+    font-size: 22px;
+}
+
+#axie-skills .skill-slot .skill-level {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 9px;
+    font-weight: bold;
+    color: #ffaa44;
+}
+
+#axie-portrait {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    border: 2px solid #88aaff;
+    background: #1a1a2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+#axie-portrait .placeholder {
+    color: #88aaff;
+    font-size: 12px;
+    text-align: center;
+}
+
+#axie-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+#axie-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#axie-name .name {
+    color: #fff;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+#axie-name .level {
+    background: #4488ff;
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 2px 10px;
+    border-radius: 12px;
+    border: 1px solid #88aaff;
+}
+
+#axie-name .exp-bar {
+    flex: 1;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-left: 8px;
+}
+
+#axie-name .exp-bar .exp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ffaa44, #ffdd88);
+    border-radius: 3px;
+    transition: width 0.3s;
+    width: 0%;
+}
+
+.bar-container {
+    width: 100%;
+    height: 18px;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    background: rgba(255,255,255,0.06);
+}
+
+.bar-container .bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.bar-container .bar-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    text-shadow: 0 0 5px rgba(0,0,0,0.8);
+    white-space: nowrap;
+}
+
+#health-bar-container .bar {
+    background: linear-gradient(90deg, #ff2244, #ff6644);
+}
+
+#energy-bar-container .bar {
+    background: linear-gradient(90deg, #2244ff, #4488ff);
+}
+
+#axie-stats {
+    display: flex;
+    gap: 16px;
+    margin-top: 2px;
+}
+
+#axie-stats .stat {
+    color: #88aaff;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+#axie-stats .stat span {
+    color: #fff;
+}
+
+#axie-items {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+#axie-items .item-slot {
+    width: 44px;
+    height: 44px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(136,170,255,0.15);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: rgba(255,255,255,0.3);
+    position: relative;
+    transition: all 0.2s;
+}
+
+#axie-items .item-slot .item-icon {
+    font-size: 18px;
+}
+
+#axie-items .item-slot .item-key {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 8px;
+    color: rgba(255,255,255,0.2);
+}
