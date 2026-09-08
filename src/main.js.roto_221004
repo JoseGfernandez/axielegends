@@ -1,0 +1,1080 @@
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// =============================================
+// CONFIGURACIÓN OPTIMIZADA
+// =============================================
+const CONFIG = {
+    axieSpeed: 1.5,
+    SPAWN_DELAY: 15,
+    towerRange: 6,
+    towerDamage: 20,
+    towerFireRate: 1.5,
+    towerHealth: 500,
+    nexusHealth: 1000,
+    meleeSpacing: 1.1,
+    mageSpacing: 0.9,
+    meleeSpeed: 1.4,
+    mageSpeed: 1.4,
+    // NUEVO: Límite de minions para rendimiento
+    MAX_MINIONS_PER_WAVE: 6,      // Antes: 8 (5 melee + 3 mage)
+    UPDATE_INTERVAL: 3,            // Actualizar barras cada 3 frames
+};
+
+// =============================================
+// DATOS DEL AXIE PARA EL HUB
+// =============================================
+const axieData = {
+    name: 'Puff',
+    level: 1,
+    maxHealth: 500,
+    health: 500,
+    maxEnergy: 100,
+    energy: 100,
+    attack: 20,
+    defense: 10,
+    speed: 1.5,
+    items: [null, null, null, null, null, null],
+    exp: 0,
+    expToNext: 100,
+};
+
+// =============================================
+// FUNCIONES DEL HUB
+// =============================================
+function updateHub() {
+    const healthPercent = (axieData.health / axieData.maxHealth) * 100;
+    const energyPercent = (axieData.energy / axieData.maxEnergy) * 100;
+    
+    const healthBar = document.getElementById('health-bar');
+    const energyBar = document.getElementById('energy-bar');
+    const healthLabel = document.getElementById('health-label');
+    const energyLabel = document.getElementById('energy-label');
+    
+    if (healthBar) healthBar.style.width = Math.max(0, healthPercent) + '%';
+    if (energyBar) energyBar.style.width = Math.max(0, energyPercent) + '%';
+    if (healthLabel) healthLabel.textContent = '❤️ ' + Math.floor(axieData.health) + ' / ' + axieData.maxHealth;
+    if (energyLabel) energyLabel.textContent = '🔵 ' + Math.floor(axieData.energy) + ' / ' + axieData.maxEnergy;
+    
+    const attackEl = document.getElementById('stat-attack');
+    const defenseEl = document.getElementById('stat-defense');
+    const speedEl = document.getElementById('stat-speed');
+    if (attackEl) attackEl.textContent = axieData.attack;
+    if (defenseEl) defenseEl.textContent = axieData.defense;
+    if (speedEl) speedEl.textContent = axieData.speed.toFixed(1);
+    
+    const levelEl = document.querySelector('#axie-name .level');
+    if (levelEl) levelEl.textContent = 'Nv. ' + axieData.level;
+    
+    const expFill = document.getElementById('exp-fill');
+    if (expFill) {
+        const percent = (axieData.exp / axieData.expToNext) * 100;
+        expFill.style.width = Math.min(100, percent) + '%';
+    }
+}
+
+// =============================================
+// SISTEMA DE HABILIDADES
+// =============================================
+const skillData = {
+    q: { name: 'Garra Salvaje', level: 1, maxLevel: 5 },
+    w: { name: 'Rugido', level: 1, maxLevel: 5 },
+    e: { name: 'Escudo', level: 1, maxLevel: 5 },
+    r: { name: 'Furia Bestial', level: 1, maxLevel: 3 },
+};
+let skillPoints = 1;
+
+function levelUpSkill(skillKey) {
+    const skill = skillData[skillKey];
+    if (!skill) return;
+    if (skillPoints <= 0) { console.log('❌ Sin puntos'); return; }
+    if (skill.level >= skill.maxLevel) { console.log('❌ Nivel máximo'); return; }
+    skill.level++;
+    skillPoints--;
+    console.log('✅ ' + skill.name + ' → Nv. ' + skill.level);
+    updateSkillUI();
+}
+
+function updateSkillUI() {
+    const slots = document.querySelectorAll('#axie-skills .skill-slot');
+    slots.forEach(function(slot) {
+        const key = slot.dataset.skill;
+        const skill = skillData[key];
+        if (skill) {
+            const levelEl = slot.querySelector('.skill-level');
+            if (levelEl) levelEl.textContent = skill.level;
+        }
+    });
+    const nameEl = document.querySelector('#axie-name .name');
+    if (nameEl && skillPoints > 0) {
+        nameEl.textContent = '⚔️ Puff ✨+' + skillPoints;
+    } else if (nameEl) {
+        nameEl.textContent = '⚔️ Puff';
+    }
+}
+
+// =============================================
+// ESCENA, CÁMARA Y RENDERER
+// =============================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.Fog(0x0a0a1a, 35, 55);
+
+const frustumSize = 7.2;
+const aspect = window.innerWidth / window.innerHeight;
+const camera = new THREE.OrthographicCamera(
+    -frustumSize * aspect,
+    frustumSize * aspect,
+    frustumSize,
+    -frustumSize,
+    0.1,
+    100
+);
+camera.zoom = 1.0;
+
+const CAMERA_OFFSET = new THREE.Vector3(
+    Math.sin(60 * Math.PI / 180) * 15,
+    12,
+    Math.cos(60 * Math.PI / 180) * 15
+);
+
+let cameraSmoothPos = new THREE.Vector3(0, 0, 0);
+let cameraSmoothTarget = new THREE.Vector3(0, 0, 0);
+
+function updateCameraPosition() {
+    if (!playerModel) return;
+    const targetPos = playerModel.position;
+    const targetCamPos = new THREE.Vector3(
+        targetPos.x + CAMERA_OFFSET.x,
+        targetPos.y + CAMERA_OFFSET.y,
+        targetPos.z + CAMERA_OFFSET.z
+    );
+    cameraSmoothPos.lerp(targetCamPos, 0.12);
+    cameraSmoothTarget.lerp(targetPos, 0.12);
+    camera.position.copy(cameraSmoothPos);
+    camera.lookAt(cameraSmoothTarget);
+    camera.updateProjectionMatrix();
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
+renderer.shadowMap.enabled = false;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.prepend(renderer.domElement);
+
+// =============================================
+// LUCES
+// =============================================
+scene.add(new THREE.AmbientLight(0x404060, 0.9));
+const mainLight = new THREE.DirectionalLight(0xffeedd, 2);
+mainLight.position.set(15, 25, 10);
+scene.add(mainLight);
+const fillLight = new THREE.DirectionalLight(0x4488ff, 0.3);
+fillLight.position.set(-10, 10, -10);
+scene.add(fillLight);
+
+// =============================================
+// MAPA
+// =============================================
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 58),
+    new THREE.MeshStandardMaterial({ color: 0x1a2a2a, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.5;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(40, 20, 0x446688, 0x224466);
+grid.position.y = -0.45;
+scene.add(grid);
+
+const lane = new THREE.Mesh(
+    new THREE.PlaneGeometry(10, 52),
+    new THREE.MeshStandardMaterial({ color: 0x3a5a3a, roughness: 0.8 })
+);
+lane.rotation.x = -Math.PI / 2;
+lane.position.set(0, -0.45, 0);
+scene.add(lane);
+
+// =============================================
+// MINION - OPTIMIZADO
+// =============================================
+class Minion {
+    constructor(x, z, isEnemy = false, tipo = 'melee') {
+        this.isEnemy = isEnemy;
+        this.tipo = tipo;
+        this.maxHealth = tipo === 'mage' ? 60 : 100;
+        this.health = this.maxHealth;
+        this.speed = 1.4;
+        this.direction = isEnemy ? -1 : 1;
+        this.attackDamage = tipo === 'mage' ? 15 : 10;
+        this.attackRange = tipo === 'mage' ? 3.5 : 1.5;
+        this.attackCooldown = 0;
+        this.attackSpeed = tipo === 'mage' ? 1.5 : 1.0;
+        this.isDead = false;
+        this.type = 'minion';
+        this.healthBarDirty = true; // Marcar para actualizar
+        this.lastHealthUpdate = 0;
+        this.updateInterval = 0.3; // Actualizar barra cada 0.3 segundos
+        
+        const scale = 0.5;
+        const color = isEnemy ? 0xff5555 : 0x5588ff;
+        
+        this.group = new THREE.Group();
+        
+        // Cuerpo (simplificado para rendimiento)
+        const body = new THREE.Mesh(
+            new THREE.SphereGeometry(0.3 * scale, 6, 6), // Menos segmentos
+            new THREE.MeshStandardMaterial({ color, roughness: 0.6 })
+        );
+        body.scale.set(0.9, 1.2, 0.8);
+        body.position.y = 0.5 * scale;
+        this.group.add(body);
+        
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22 * scale, 6, 6), // Menos segmentos
+            new THREE.MeshStandardMaterial({ color, roughness: 0.5 })
+        );
+        head.scale.set(1, 0.9, 0.9);
+        head.position.set(0, 0.9 * scale, 0);
+        this.group.add(head);
+        
+        // Barra de vida (simplificada)
+        const barGeo = new THREE.PlaneGeometry(0.8, 0.06);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 1.3 * scale;
+        this.group.add(this.healthBar);
+        
+        // Fondo de la barra (negro)
+        const bgBar = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.8, 0.06),
+            new THREE.MeshBasicMaterial({ color: 0x000000 })
+        );
+        bgBar.position.y = 1.3 * scale;
+        this.group.add(bgBar);
+        // Mover la barra verde al frente
+        this.healthBar.position.z = 0.01;
+        
+        this.group.rotation.y = isEnemy ? Math.PI : 0;
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        // Solo actualizar si pasó suficiente tiempo
+        const now = performance.now() / 1000;
+        if (now - this.lastHealthUpdate < this.updateInterval && !this.healthBarDirty) {
+            return;
+        }
+        this.lastHealthUpdate = now;
+        this.healthBarDirty = false;
+        
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        // Cambiar color según vida
+        if (percent > 0.3) {
+            this.healthBar.material.color.setHex(0x44ff44);
+        } else {
+            this.healthBar.material.color.setHex(0xff4444);
+        }
+    }
+    
+    update(delta, enemies) {
+        if (this.isDead) return;
+        this.attackCooldown -= delta;
+        
+        let closest = null;
+        let closestDist = this.attackRange + 1;
+        for (const enemy of enemies) {
+            if (enemy.isDead) continue;
+            const dist = this.group.position.distanceTo(enemy.group.position);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = enemy;
+            }
+        }
+        
+        if (closest && closestDist <= this.attackRange) {
+            if (this.attackCooldown <= 0) {
+                closest.health -= this.attackDamage;
+                closest.healthBarDirty = true;
+                this.attackCooldown = this.attackSpeed;
+                if (closest.health <= 0 && closest.die) {
+                    closest.die();
+                }
+            }
+        } else {
+            let newZ = this.group.position.z + this.direction * this.speed * delta;
+            if (newZ > 26) newZ = 26;
+            if (newZ < -26) newZ = -26;
+            this.group.position.z = newZ;
+        }
+        // Marcar para actualizar si la vida cambió
+        if (this.healthBarDirty) {
+            this.updateHealthBar();
+        }
+    }
+    
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.group.visible = false;
+        if (typeof addExp !== 'undefined') {
+            addExp(20);
+        }
+    }
+}
+
+// =============================================
+// TORRE (simplificada)
+// =============================================
+class SimpleTower {
+    constructor(x, z, isEnemy = false) {
+        this.isEnemy = isEnemy;
+        this.maxHealth = 500;
+        this.health = this.maxHealth;
+        this.isDead = false;
+        this.range = 6;
+        this.damage = 20;
+        this.fireRate = 1.5;
+        this.cooldown = 0;
+        this.type = 'tower';
+        this.healthBarDirty = true;
+        this.lastHealthUpdate = 0;
+        this.updateInterval = 0.3;
+        this.group = new THREE.Group();
+        
+        const color = isEnemy ? 0xcc4444 : 0x4488cc;
+        const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.8, 1.0, 1.5, 6), // Menos segmentos
+            new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 })
+        );
+        body.position.y = 0.75;
+        this.group.add(body);
+        
+        const gem = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.2),
+            new THREE.MeshStandardMaterial({
+                color: isEnemy ? 0xff4444 : 0x4488ff,
+                emissive: isEnemy ? 0xff4444 : 0x4488ff,
+                emissiveIntensity: 1.0
+            })
+        );
+        gem.position.y = 1.6;
+        this.group.add(gem);
+        this.gem = gem;
+        
+        const barGeo = new THREE.PlaneGeometry(1.2, 0.06);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 2.2;
+        this.group.add(this.healthBar);
+        
+        // Fondo de barra
+        const bgBar = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.2, 0.06),
+            new THREE.MeshBasicMaterial({ color: 0x000000 })
+        );
+        bgBar.position.y = 2.2;
+        this.group.add(bgBar);
+        this.healthBar.position.z = 0.01;
+        
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        const now = performance.now() / 1000;
+        if (now - this.lastHealthUpdate < this.updateInterval && !this.healthBarDirty) {
+            return;
+        }
+        this.lastHealthUpdate = now;
+        this.healthBarDirty = false;
+        
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        this.healthBar.material.color.setHex(percent > 0.3 ? 0x44ff44 : 0xff4444);
+    }
+    
+    takeDamage(damage) {
+        if (this.isDead) return;
+        this.health -= damage;
+        this.healthBarDirty = true;
+        this.updateHealthBar();
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isDead = true;
+            this.group.visible = false;
+        }
+    }
+}
+
+// =============================================
+// NEXO (simplificado)
+// =============================================
+class SimpleNexus {
+    constructor(x, z, isEnemy = false) {
+        this.isEnemy = isEnemy;
+        this.maxHealth = 1000;
+        this.health = this.maxHealth;
+        this.isDead = false;
+        this.type = 'nexus';
+        this.healthBarDirty = true;
+        this.lastHealthUpdate = 0;
+        this.updateInterval = 0.3;
+        this.group = new THREE.Group();
+        
+        const color = isEnemy ? 0x882222 : 0x224488;
+        const base = new THREE.Mesh(
+            new THREE.CylinderGeometry(3, 3.5, 0.5, 16), // Menos segmentos
+            new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.5 })
+        );
+        base.position.y = 0;
+        this.group.add(base);
+        
+        const nexus = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5, 16, 16), // Menos segmentos
+            new THREE.MeshStandardMaterial({
+                color: isEnemy ? 0xff4444 : 0x4488ff,
+                emissive: isEnemy ? 0xff4444 : 0x4488ff,
+                emissiveIntensity: 0.8,
+                transparent: true,
+                opacity: 0.85
+            })
+        );
+        nexus.position.y = 1.5;
+        this.group.add(nexus);
+        
+        const barGeo = new THREE.PlaneGeometry(2.5, 0.08);
+        const barMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+        this.healthBar = new THREE.Mesh(barGeo, barMat);
+        this.healthBar.position.y = 2.8;
+        this.group.add(this.healthBar);
+        
+        const bgBar = new THREE.Mesh(
+            new THREE.PlaneGeometry(2.5, 0.08),
+            new THREE.MeshBasicMaterial({ color: 0x000000 })
+        );
+        bgBar.position.y = 2.8;
+        this.group.add(bgBar);
+        this.healthBar.position.z = 0.01;
+        
+        this.group.position.set(x, -0.3, z);
+        scene.add(this.group);
+    }
+    
+    updateHealthBar() {
+        const now = performance.now() / 1000;
+        if (now - this.lastHealthUpdate < this.updateInterval && !this.healthBarDirty) {
+            return;
+        }
+        this.lastHealthUpdate = now;
+        this.healthBarDirty = false;
+        
+        const percent = this.health / this.maxHealth;
+        this.healthBar.scale.x = Math.max(0, percent);
+        this.healthBar.material.color.setHex(percent > 0.3 ? 0x44ff44 : 0xff4444);
+    }
+    
+    takeDamage(damage) {
+        if (this.isDead) return;
+        this.health -= damage;
+        this.healthBarDirty = true;
+        this.updateHealthBar();
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isDead = true;
+            this.group.visible = false;
+        }
+    }
+}
+
+// Crear torres y nexos
+const nexusAliado = new SimpleNexus(0, -26, false);
+const nexusEnemigo = new SimpleNexus(0, 26, true);
+
+const towers = [];
+const towerPositions = [
+    [-3.5, -18, false],
+    [-3.5, -6, false],
+    [3.5, 18, true],
+    [3.5, 6, true]
+];
+for (const [x, z, isEnemy] of towerPositions) {
+    towers.push(new SimpleTower(x, z, isEnemy));
+}
+
+// =============================================
+// SISTEMA DE OLEADAS - OPTIMIZADO
+// =============================================
+const aliados = [];
+const enemigos = [];
+let waveNumber = 1;
+let waveCooldown = 0;
+const WAVE_DELAY = 1.5;
+let gameStarted = false;
+let startTimer = CONFIG.SPAWN_DELAY;
+
+function spawnWave() {
+    // Limpiar minions muertos
+    for (let i = aliados.length - 1; i >= 0; i--) {
+        if (aliados[i].isDead) {
+            scene.remove(aliados[i].group);
+            aliados.splice(i, 1);
+        }
+    }
+    for (let i = enemigos.length - 1; i >= 0; i--) {
+        if (enemigos[i].isDead) {
+            scene.remove(enemigos[i].group);
+            enemigos.splice(i, 1);
+        }
+    }
+    
+    // Menos minions por oleada para mejor rendimiento
+    const maxPerWave = CONFIG.MAX_MINIONS_PER_WAVE;
+    const meleeCount = Math.min(waveNumber === 1 ? 4 : 2, maxPerWave - 1);
+    const mageCount = Math.min(waveNumber === 1 ? 2 : 1, maxPerWave - meleeCount);
+    
+    console.log('⚔️ OLEADA ' + waveNumber + ': ' + meleeCount + ' Melee + ' + mageCount + ' Mage');
+    const waveDiv = document.getElementById('wave-display');
+    if (waveDiv) waveDiv.textContent = '⚔️ OLEADA ' + waveNumber;
+    
+    const spacing = 1.1;
+    const mageSpacing = 0.9;
+    const totalMelee = (meleeCount - 1) * spacing;
+    const totalMage = (mageCount - 1) * mageSpacing;
+    
+    // Aliados
+    for (let i = 0; i < meleeCount; i++) {
+        const x = -totalMelee / 2 + i * spacing;
+        const z = -18 - i * 0.3;
+        aliados.push(new Minion(x, z, false, 'melee'));
+    }
+    for (let i = 0; i < mageCount; i++) {
+        const x = -totalMage / 2 + i * mageSpacing;
+        const z = -18 - meleeCount * 0.3 - 1.0 - i * 0.2;
+        aliados.push(new Minion(x, z, false, 'mage'));
+    }
+    
+    // Enemigos (espejo)
+    for (let i = 0; i < meleeCount; i++) {
+        const x = -totalMelee / 2 + i * spacing;
+        const z = 18 + i * 0.3;
+        enemigos.push(new Minion(x, z, true, 'melee'));
+    }
+    for (let i = 0; i < mageCount; i++) {
+        const x = -totalMage / 2 + i * mageSpacing;
+        const z = 18 + meleeCount * 0.3 + 1.0 + i * 0.2;
+        enemigos.push(new Minion(x, z, true, 'mage'));
+    }
+    
+    waveNumber++;
+    waveCooldown = 0;
+}
+
+// =============================================
+// UI
+// =============================================
+const timerDiv = document.createElement('div');
+timerDiv.id = 'timer-display';
+timerDiv.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);color:#44ff88;font-family:Courier New,monospace;font-size:28px;font-weight:bold;background:rgba(0,0,0,0.8);padding:8px 24px;border-radius:12px;z-index:100;pointer-events:none;border:2px solid rgba(68,255,136,0.3);';
+timerDiv.textContent = '00:00';
+document.body.appendChild(timerDiv);
+
+const fpsDiv = document.createElement('div');
+fpsDiv.id = 'fps-display';
+fpsDiv.style.cssText = 'position:fixed;top:20px;right:20px;color:#88aaff;font-family:Courier New,monospace;font-size:18px;background:rgba(0,0,0,0.7);padding:6px 14px;border-radius:8px;z-index:100;pointer-events:none;';
+fpsDiv.textContent = 'FPS: 0';
+document.body.appendChild(fpsDiv);
+
+const waveDiv = document.createElement('div');
+waveDiv.id = 'wave-display';
+waveDiv.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);color:#ffaa44;font-family:Courier New,monospace;font-size:16px;background:rgba(0,0,0,0.7);padding:4px 16px;border-radius:8px;z-index:100;pointer-events:none;';
+waveDiv.textContent = '⏳ 15s';
+document.body.appendChild(waveDiv);
+
+// =============================================
+// JUGADOR - AXIE 3D
+// =============================================
+let playerModel = null;
+let mixer = null;
+let animIdle = null;
+let animWalk = null;
+let currentAnim = 'idle';
+
+let targetPosition = null;
+let isMovingToTarget = false;
+let playerSpeed = CONFIG.axieSpeed;
+const playerSpawnPosition = new THREE.Vector3(0, 0, -20);
+let smoothPlayerPos = new THREE.Vector3(0, 0, -20);
+
+let isDragging = false;
+let isMouseDown = false;
+let mouseDownPos = { x: 0, y: 0 };
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// ===== CARGAR AXIE 3D =====
+console.log('📦 Cargando Axie del jugador...');
+
+const loader = new GLTFLoader();
+loader.load(
+    '/axie-3d-assets/assets/mascots/bing.glb',
+    function(gltf) {
+        console.log('✅ Axie del jugador cargado!');
+        playerModel = gltf.scene;
+        playerModel.scale.set(1.2, 1.2, 1.2);
+        playerModel.position.copy(playerSpawnPosition);
+        smoothPlayerPos.copy(playerSpawnPosition);
+        playerModel.castShadow = true;
+        playerModel.traverse(function(node) {
+            if (node.isMesh) {
+                node.castShadow = true;
+                node.receiveShadow = true;
+            }
+        });
+        scene.add(playerModel);
+        
+        mixer = new THREE.AnimationMixer(playerModel);
+        const clips = gltf.animations;
+        clips.forEach(function(clip) {
+            const name = clip.name.toLowerCase();
+            if (name.includes('idle')) animIdle = mixer.clipAction(clip);
+            if (name.includes('walk')) animWalk = mixer.clipAction(clip);
+        });
+        if (animIdle) animIdle.play();
+        console.log('🎬 Animaciones del jugador cargadas');
+    },
+    undefined,
+    function(error) {
+        console.error('❌ Error cargando Axie del jugador:', error);
+        const fallback = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 1.2, 0.8),
+            new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.2 })
+        );
+        fallback.position.copy(playerSpawnPosition);
+        scene.add(fallback);
+        playerModel = fallback;
+        smoothPlayerPos.copy(playerSpawnPosition);
+        console.log('📌 Usando Axie de respaldo (cubo rojo)');
+    }
+);
+
+// =============================================
+// FUNCIONES DEL MOUSE
+// =============================================
+function getGroundIntersection(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const point = new THREE.Vector3();
+    const intersectPoint = raycaster.ray.intersectPlane(plane, point);
+    if (intersectPoint) {
+        intersectPoint.x = Math.max(-17, Math.min(17, intersectPoint.x));
+        intersectPoint.z = Math.max(-27, Math.min(27, intersectPoint.z));
+        return intersectPoint;
+    }
+    return null;
+}
+
+function getTargetFromClick(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    
+    // Buscar objetos seleccionables (minions, torres, nexos)
+    const selectables = [];
+    const allGroups = [aliados, enemigos, towers, [nexusAliado, nexusEnemigo]];
+    for (const list of allGroups) {
+        for (const item of list) {
+            if (item.group && item.group.visible) {
+                item.group.traverse(function(child) {
+                    if (child.isMesh) {
+                        selectables.push(child);
+                    }
+                });
+            }
+        }
+    }
+    
+    const intersects = raycaster.intersectObjects(selectables);
+    if (intersects.length > 0) {
+        // Encontrar el objeto padre
+        let obj = intersects[0].object;
+        // Buscar en la jerarquía el grupo que contiene el objeto
+        let parent = obj.parent;
+        while (parent) {
+            // Verificar si este grupo pertenece a algún objeto de juego
+            for (const list of allGroups) {
+                for (const item of list) {
+                    if (item.group === parent) {
+                        return item;
+                    }
+                }
+            }
+            parent = parent.parent;
+        }
+    }
+    return null;
+}
+
+// ===== EVENTOS DEL MOUSE =====
+renderer.domElement.addEventListener('mousedown', function(e) {
+    if (e.button === 0) {
+        isMouseDown = true;
+        isDragging = false;
+        mouseDownPos.x = e.clientX;
+        mouseDownPos.y = e.clientY;
+        
+        if (playerModel) {
+            const target = getTargetFromClick(e);
+            if (target) {
+                console.log('🎯 Seleccionado:', target.type || 'objeto');
+                // Aquí puedes añadir lógica de ataque
+                return;
+            }
+        }
+    }
+});
+
+renderer.domElement.addEventListener('mousemove', function(e) {
+    if (isMouseDown) {
+        var dx = e.clientX - mouseDownPos.x;
+        var dy = e.clientY - mouseDownPos.y;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) isDragging = true;
+    }
+});
+
+renderer.domElement.addEventListener('mouseup', function(e) {
+    if (e.button === 0) {
+        if (!isDragging && playerModel) {
+            var point = getGroundIntersection(e);
+            if (point) {
+                targetPosition = point.clone();
+                isMovingToTarget = true;
+            }
+        }
+        isMouseDown = false;
+        isDragging = false;
+    }
+});
+
+renderer.domElement.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+// =============================================
+// VISOR DE MEMORIA
+// =============================================
+const memoryDiv = document.createElement('div');
+memoryDiv.id = 'memory-display';
+memoryDiv.style.cssText = `
+    position: fixed;
+    top: 46px;
+    right: 20px;
+    color: #44ff88;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: bold;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 3px 10px;
+    border-radius: 6px;
+    z-index: 100;
+    pointer-events: none;
+    border: 1px solid rgba(68, 255, 136, 0.2);
+    min-width: 130px;
+    text-align: right;
+    line-height: 1.4;
+    transition: all 0.3s ease;
+`;
+memoryDiv.textContent = '🧠 Memoria: 0 MB (0%)';
+document.body.appendChild(memoryDiv);
+
+function getMemoryStatus() {
+    try {
+        if (window.performance && window.performance.memory) {
+            const mem = window.performance.memory;
+            const usedMB = (mem.usedJSHeapSize / 1048576).toFixed(1);
+            const totalMB = (mem.jsHeapSizeLimit / 1048576).toFixed(0);
+            const percent = ((mem.usedJSHeapSize / mem.jsHeapSizeLimit) * 100).toFixed(1);
+            return { used: usedMB, total: totalMB, percent: percent };
+        } else if (typeof scene !== 'undefined' && scene.children) {
+            const total = scene.children.length;
+            return { used: (total * 0.3).toFixed(1), total: 'N/A', percent: 'N/A' };
+        }
+        return { used: '?', total: '?', percent: '?' };
+    } catch (e) {
+        return { used: '?', total: '?', percent: '?' };
+    }
+}
+
+function updateMemoryDisplay() {
+    const status = getMemoryStatus();
+    let displayText = '';
+    let color = '#44ff88';
+    let borderColor = 'rgba(68, 255, 136, 0.2)';
+    
+    if (status.percent !== 'N/A' && status.percent !== '?') {
+        const p = parseFloat(status.percent);
+        if (p > 85) {
+            color = '#ff4444';
+            borderColor = 'rgba(255, 68, 68, 0.4)';
+            memoryDiv.style.boxShadow = '0 0 25px rgba(255, 68, 68, 0.3)';
+        } else if (p > 70) {
+            color = '#ffaa44';
+            borderColor = 'rgba(255, 170, 68, 0.3)';
+            memoryDiv.style.boxShadow = '0 0 15px rgba(255, 170, 68, 0.2)';
+        } else {
+            color = '#44ff88';
+            borderColor = 'rgba(68, 255, 136, 0.2)';
+            memoryDiv.style.boxShadow = 'none';
+        }
+        displayText = `🧠 ${status.used} MB / ${status.total} MB (${status.percent}%)`;
+        memoryDiv.style.color = color;
+        memoryDiv.style.borderColor = borderColor;
+        if (p > 90) {
+            displayText = '⚠️ ' + displayText;
+        }
+    } else if (status.used !== '?') {
+        displayText = `🧠 ${status.used} MB (estimado)`;
+        memoryDiv.style.color = '#88aaff';
+    } else {
+        displayText = '🧠 Memoria: N/A';
+        memoryDiv.style.color = '#88aaff';
+    }
+    memoryDiv.textContent = displayText;
+}
+
+setInterval(updateMemoryDisplay, 2000);
+setTimeout(updateMemoryDisplay, 500);
+
+window.memory = {
+    getStatus: getMemoryStatus,
+    update: updateMemoryDisplay
+};
+
+console.log('🧠 Visor de memoria activado');
+
+// =============================================
+// OCULTAR CARGA
+// =============================================
+function hideLoading() {
+    var loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.opacity = '0';
+        setTimeout(function() {
+            loading.style.display = 'none';
+        }, 500);
+    }
+}
+
+// =============================================
+// LOOP PRINCIPAL
+// =============================================
+var frameCounter = 0;
+var lastTime = 0;
+var gameTime = 0;
+var realFPS = 0;
+var fpsCounter = 0;
+var fpsTimer = 0;
+
+function gameLoop(time) {
+    var delta = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+    frameCounter++;
+    gameTime += delta;
+    
+    timerDiv.textContent = Math.floor(gameTime / 60).toString().padStart(2, '0') + ':' + Math.floor(gameTime % 60).toString().padStart(2, '0');
+    
+    fpsCounter++;
+    fpsTimer += delta;
+    if (fpsTimer >= 1.0) {
+        realFPS = Math.round(fpsCounter / fpsTimer);
+        fpsCounter = 0;
+        fpsTimer = 0;
+        fpsDiv.textContent = 'FPS: ' + realFPS;
+    }
+    
+    // ===== MOVIMIENTO =====
+    if (playerModel) {
+        if (isMovingToTarget && targetPosition) {
+            var dx = targetPosition.x - smoothPlayerPos.x;
+            var dz = targetPosition.z - smoothPlayerPos.z;
+            var dist = Math.sqrt(dx * dx + dz * dz);
+            
+            if (dist < 0.05) {
+                smoothPlayerPos.copy(targetPosition);
+                isMovingToTarget = false;
+                targetPosition = null;
+            } else {
+                var moveSpeed = playerSpeed * delta;
+                var stepX = (dx / dist) * moveSpeed;
+                var stepZ = (dz / dist) * moveSpeed;
+                if (Math.abs(stepX) > Math.abs(dx)) smoothPlayerPos.x = targetPosition.x;
+                else smoothPlayerPos.x += stepX;
+                if (Math.abs(stepZ) > Math.abs(dz)) smoothPlayerPos.z = targetPosition.z;
+                else smoothPlayerPos.z += stepZ;
+                
+                var angle = Math.atan2(dx, dz);
+                playerModel.rotation.y = angle;
+            }
+            playerModel.position.copy(smoothPlayerPos);
+        } else if (smoothPlayerPos) {
+            playerModel.position.copy(smoothPlayerPos);
+        }
+    }
+    
+    // ===== JUEGO =====
+    if (!gameStarted) {
+        startTimer -= delta;
+        waveDiv.textContent = '⏳ ' + Math.ceil(startTimer) + 's';
+        if (startTimer <= 0) {
+            gameStarted = true;
+            spawnWave();
+        }
+        if (playerModel) updateCameraPosition();
+        renderer.render(scene, camera);
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
+    // Actualizar torres
+    for (var i = 0; i < towers.length; i++) {
+        var tower = towers[i];
+        if (tower.isDead) continue;
+        tower.cooldown -= delta;
+        var enemiesTarget = tower.isEnemy ? aliados : enemigos;
+        var closest = null;
+        var closestDist = tower.range + 1;
+        for (var j = 0; j < enemiesTarget.length; j++) {
+            var enemy = enemiesTarget[j];
+            if (enemy.isDead) continue;
+            var dist = tower.group.position.distanceTo(enemy.group.position);
+            if (dist < closestDist && dist <= tower.range) {
+                closestDist = dist;
+                closest = enemy;
+            }
+        }
+        if (closest && tower.cooldown <= 0) {
+            closest.health -= tower.damage;
+            closest.healthBarDirty = true;
+            tower.cooldown = tower.fireRate;
+            if (closest.health <= 0 && closest.die) closest.die();
+        }
+    }
+    
+    // Actualizar minions (menos frecuente)
+    if (frameCounter % 2 === 0) {
+        for (var k = 0; k < aliados.length; k++) {
+            aliados[k].update(delta, enemigos);
+        }
+        for (var m = 0; m < enemigos.length; m++) {
+            enemigos[m].update(delta, aliados);
+        }
+    }
+    
+    // Actualizar barras de vida (solo si es necesario)
+    if (frameCounter % CONFIG.UPDATE_INTERVAL === 0) {
+        for (const minion of aliados) {
+            if (minion.healthBarDirty) minion.updateHealthBar();
+        }
+        for (const minion of enemigos) {
+            if (minion.healthBarDirty) minion.updateHealthBar();
+        }
+        for (const tower of towers) {
+            if (tower.healthBarDirty) tower.updateHealthBar();
+        }
+        if (nexusAliado.healthBarDirty) nexusAliado.updateHealthBar();
+        if (nexusEnemigo.healthBarDirty) nexusEnemigo.updateHealthBar();
+    }
+    
+    // Verificar oleadas
+    var aliveAliados = aliados.filter(function(m) { return !m.isDead; });
+    var aliveEnemigos = enemigos.filter(function(m) { return !m.isDead; });
+    if (aliveAliados.length === 0 || aliveEnemigos.length === 0) {
+        waveCooldown += delta;
+        if (waveCooldown > WAVE_DELAY) {
+            waveCooldown = 0;
+            spawnWave();
+        }
+    } else {
+        waveCooldown = 0;
+    }
+    
+    // Actualizar animaciones
+    if (mixer) {
+        var isMoving = isMovingToTarget;
+        var targetAnim = isMoving ? 'walk' : 'idle';
+        if (targetAnim !== currentAnim) {
+            if (currentAnim === 'idle' && animIdle) animIdle.stop();
+            if (currentAnim === 'walk' && animWalk) animWalk.stop();
+            if (targetAnim === 'idle' && animIdle) animIdle.play();
+            if (targetAnim === 'walk' && animWalk) animWalk.play();
+            currentAnim = targetAnim;
+        }
+        mixer.update(delta);
+    }
+    
+    if (playerModel) updateCameraPosition();
+    renderer.render(scene, camera);
+    requestAnimationFrame(gameLoop);
+}
+
+// =============================================
+// REDIMENSIONAR
+// =============================================
+window.addEventListener('resize', function() {
+    var aspect = window.innerWidth / window.innerHeight;
+    camera.left = -7.2 * aspect;
+    camera.right = 7.2 * aspect;
+    camera.top = 7.2;
+    camera.bottom = -7.2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// =============================================
+// INICIAR
+// =============================================
+console.log('');
+console.log('🐱 AXIE LEGENDS - OPTIMIZADO');
+console.log('============================');
+console.log('📌 Minions reducidos para mejor rendimiento');
+console.log('📌 Barras de vida actualizadas cada 0.3s');
+console.log('📌 Geometrías simplificadas');
+console.log('');
+
+hideLoading();
+updateCameraPosition();
+requestAnimationFrame(gameLoop);
+
+// Exponer para pruebas
+window.axie = {
+    data: axieData,
+    addExp: function(amount) {
+        axieData.exp += amount;
+        while (axieData.exp >= axieData.expToNext) {
+            axieData.exp -= axieData.expToNext;
+            axieData.level++;
+            axieData.expToNext = Math.floor(axieData.expToNext * 1.3) + 50;
+            axieData.maxHealth += 30;
+            axieData.health = Math.min(axieData.health + 30, axieData.maxHealth);
+            axieData.attack += 2;
+            axieData.defense += 1;
+            skillPoints++;
+            console.log('🎉 Nv. ' + axieData.level + '! Puntos: ' + skillPoints);
+        }
+        updateHub();
+        updateSkillUI();
+    },
+    levelUpSkill: levelUpSkill,
+    updateHub: updateHub
+};
+
+console.log('💡 window.axie.addExp(100)');

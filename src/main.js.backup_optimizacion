@@ -25,38 +25,11 @@ const CONFIG = {
     mageSpacing: 0.9,
     meleeSpeed: 1.4,
     mageSpeed: 1.4,
+    // Velocidad del Axie: 1.5
     axieSpeed: 1.5,
     smoothSpeed: 2.5,
     cameraSmoothSpeed: 3.0,
-    // ===== SISTEMA DE ATAQUE =====
-    attackRange: 4.0,
-    attackDamage: 15,
-    attackSpeed: 0.7,
-    projectileSpeed: 8,
-    // ===== AGRO RANGE =====
-    agroRange: 12.0,
-    // ===== TIEMPO DE RE-EVALUACIÓN =====
-    reevaluationTime: 2.0,
-    // ===== PERSECUCIÓN =====
-    chaseTime: 3.0,
-    // ===== VIDA DEL AXIE (INMORTAL) =====
-    playerMaxHealth: 999999,
-    // ===== PRIMERA OLEADA (fantasmal) =====
-    firstWaveGhostDuration: 28,
 };
-
-// =============================================
-// VARIABLES GLOBALES
-// =============================================
-let playerHealth = CONFIG.playerMaxHealth;
-let playerMaxHealth = CONFIG.playerMaxHealth;
-let isPlayerDead = false;
-let playerAttackTarget = null;
-let gameTime = 0;
-let isFirstWave = true;
-let firstWaveTimer = 0;
-let gameFinished = false;
-let victoryScreen = null;
 
 // =============================================
 // CACHE DE TEXTURAS
@@ -246,15 +219,11 @@ class Nexus {
         this.health = this.maxHealth;
         this.isDead = false;
         this.segments = 10;
-        this.type = 'nexus';
-        this.explosionParticles = [];
-        this.isExploding = false;
         
         const color = isEnemy ? 0x882222 : 0x224488;
         const emissiveColor = isEnemy ? 0xff4444 : 0x4488ff;
         
         this.group = new THREE.Group();
-        this.group.userData.targetRef = this;
         
         const baseGeo = new THREE.CylinderGeometry(3, 3.5, 0.5, 24);
         const baseMat = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.5 });
@@ -262,7 +231,6 @@ class Nexus {
         base.position.y = 0;
         base.receiveShadow = false;
         base.castShadow = false;
-        base.userData.targetRef = this;
         this.group.add(base);
         
         const ringGeo = new THREE.TorusGeometry(2.5, 0.1, 12, 24);
@@ -274,11 +242,10 @@ class Nexus {
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.y = 0.3;
         ring.rotation.x = Math.PI / 2;
-        ring.userData.targetRef = this;
         this.group.add(ring);
         
-        this.nexusGeo = new THREE.SphereGeometry(1.5, 24, 24);
-        this.nexusMat = new THREE.MeshStandardMaterial({
+        const nexusGeo = new THREE.SphereGeometry(1.5, 24, 24);
+        const nexusMat = new THREE.MeshStandardMaterial({
             color: emissiveColor,
             roughness: 0.1,
             metalness: 0.9,
@@ -287,11 +254,10 @@ class Nexus {
             transparent: true,
             opacity: 0.85
         });
-        this.nexusMesh = new THREE.Mesh(this.nexusGeo, this.nexusMat);
-        this.nexusMesh.position.y = 1.5;
-        this.nexusMesh.castShadow = false;
-        this.nexusMesh.userData.targetRef = this;
-        this.group.add(this.nexusMesh);
+        const nexusMesh = new THREE.Mesh(nexusGeo, nexusMat);
+        nexusMesh.position.y = 1.5;
+        nexusMesh.castShadow = false;
+        this.group.add(nexusMesh);
         
         const particleMat = new THREE.PointsMaterial({
             color: emissiveColor,
@@ -307,10 +273,9 @@ class Nexus {
             particlePos[i] = (Math.random() - 0.5) * 4;
         }
         particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
-        this.particles = new THREE.Points(particleGeo, particleMat);
-        this.particles.position.y = 1.5;
-        this.particles.userData.targetRef = this;
-        this.group.add(this.particles);
+        const particles = new THREE.Points(particleGeo, particleMat);
+        particles.position.y = 1.5;
+        this.group.add(particles);
         
         const healthBar = createHealthBar(this.segments, this.isEnemy);
         healthBar.sprite.position.y = 2.8;
@@ -336,133 +301,9 @@ class Nexus {
         if (this.health <= 0) {
             this.health = 0;
             this.isDead = true;
-            this.startExplosion();
+            this.group.visible = false;
             console.log(`💀 NEXO ${this.isEnemy ? 'ENEMIGO' : 'ALIADO'} DESTRUIDO!`);
-            // Si es el nexo enemigo, mostrar victoria
-            if (this.isEnemy) {
-                showVictoryScreen();
-            }
         }
-    }
-    
-    startExplosion() {
-        if (this.isExploding) return;
-        this.isExploding = true;
-        this.group.visible = false;
-        
-        // Crear explosión de partículas
-        const colors = [0xff4444, 0xff8800, 0xffff00, 0xffaa44, 0xff2244];
-        const position = this.group.position.clone();
-        position.y = 1.5;
-        
-        for (let i = 0; i < 80; i++) {
-            const size = 0.1 + Math.random() * 0.3;
-            const geo = new THREE.SphereGeometry(size, 6, 6);
-            const mat = new THREE.MeshBasicMaterial({
-                color: colors[Math.floor(Math.random() * colors.length)],
-                transparent: true,
-                opacity: 0.8 + Math.random() * 0.2
-            });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.copy(position);
-            p.position.x += (Math.random() - 0.5) * 0.5;
-            p.position.z += (Math.random() - 0.5) * 0.5;
-            
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 3 + Math.random() * 5;
-            const angleY = Math.random() * Math.PI * 2;
-            p.userData.vel = new THREE.Vector3(
-                Math.cos(angle) * Math.cos(angleY) * speed,
-                Math.sin(angleY) * speed * 1.5,
-                Math.sin(angle) * Math.cos(angleY) * speed
-            );
-            p.userData.life = 1.5 + Math.random() * 1.5;
-            p.userData.maxLife = p.userData.life;
-            p.userData.rotSpeed = (Math.random() - 0.5) * 10;
-            scene.add(p);
-            this.explosionParticles.push(p);
-        }
-        
-        // Crear un anillo de choque
-        const ringGeo2 = new THREE.TorusGeometry(0.5, 0.1, 12, 24);
-        const ringMat2 = new THREE.MeshBasicMaterial({
-            color: 0xff8800,
-            transparent: true,
-            opacity: 0.8
-        });
-        const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
-        ring2.position.copy(position);
-        ring2.rotation.x = Math.PI / 2;
-        ring2.userData.life = 1.0;
-        ring2.userData.maxLife = 1.0;
-        scene.add(ring2);
-        this.explosionParticles.push(ring2);
-        
-        // Crear destellos de luz
-        for (let i = 0; i < 20; i++) {
-            const size = 0.02 + Math.random() * 0.06;
-            const geo = new THREE.SphereGeometry(size, 4, 4);
-            const mat = new THREE.MeshBasicMaterial({
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.9
-            });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.copy(position);
-            const angle = Math.random() * Math.PI * 2;
-            const dist = Math.random() * 2;
-            p.position.x += Math.cos(angle) * dist;
-            p.position.z += Math.sin(angle) * dist;
-            p.position.y += Math.random() * 2;
-            p.userData.vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 2,
-                Math.random() * 3,
-                (Math.random() - 0.5) * 2
-            );
-            p.userData.life = 0.5 + Math.random() * 0.5;
-            p.userData.maxLife = p.userData.life;
-            scene.add(p);
-            this.explosionParticles.push(p);
-        }
-    }
-    
-    updateExplosion(delta) {
-        if (!this.isExploding) return;
-        
-        for (let i = this.explosionParticles.length - 1; i >= 0; i--) {
-            const p = this.explosionParticles[i];
-            p.userData.life -= delta;
-            
-            if (p.userData.life <= 0) {
-                scene.remove(p);
-                this.explosionParticles.splice(i, 1);
-                continue;
-            }
-            
-            const lifeRatio = p.userData.life / p.userData.maxLife;
-            
-            if (p.geometry.type === 'SphereGeometry') {
-                // Partículas esféricas
-                p.position.x += p.userData.vel.x * delta;
-                p.position.y += p.userData.vel.y * delta;
-                p.position.z += p.userData.vel.z * delta;
-                p.userData.vel.y -= 2 * delta;
-                p.material.opacity = lifeRatio * 0.8;
-                const s = 0.5 + lifeRatio * 0.5;
-                p.scale.set(s, s, s);
-                p.rotation.x += p.userData.rotSpeed * delta;
-                p.rotation.y += p.userData.rotSpeed * delta;
-            } else if (p.geometry.type === 'TorusGeometry') {
-                // Anillo de choque
-                const scale = 1 + (1 - lifeRatio) * 3;
-                p.scale.set(scale, scale, scale);
-                p.material.opacity = lifeRatio * 0.8;
-            }
-        }
-    }
-    
-    die() {
-        this.takeDamage(this.health);
     }
 }
 
@@ -617,140 +458,6 @@ class TowerProjectile {
 }
 
 // =============================================
-// PROYECTIL DEL JUGADOR
-// =============================================
-class PlayerProjectile {
-    constructor(startPos, target, damage = 15) {
-        this.target = target;
-        this.damage = damage;
-        this.speed = CONFIG.projectileSpeed;
-        this.active = true;
-        this.targetRef = target;
-        
-        const color = 0x44ff88;
-        const geo = new THREE.SphereGeometry(0.15, 8, 8);
-        const mat = new THREE.MeshStandardMaterial({
-            color: color,
-            emissive: color,
-            emissiveIntensity: 1.0,
-            transparent: true,
-            opacity: 0.9
-        });
-        this.mesh = new THREE.Mesh(geo, mat);
-        this.mesh.position.copy(startPos);
-        this.mesh.position.y = 0.5;
-        scene.add(this.mesh);
-        
-        const glowGeo = new THREE.SphereGeometry(0.25, 8, 8);
-        const glowMat = new THREE.MeshBasicMaterial({
-            color: color,
-            transparent: true,
-            opacity: 0.15
-        });
-        this.glow = new THREE.Mesh(glowGeo, glowMat);
-        this.glow.position.copy(this.mesh.position);
-        scene.add(this.glow);
-        
-        this.startPos = startPos.clone();
-        this.endPos = target.group.position.clone();
-        this.endPos.y = 0.5;
-        this.progress = 0;
-    }
-    
-    update(delta) {
-        if (!this.active) return;
-        if (this.targetRef.isDead) {
-            this.active = false;
-            scene.remove(this.mesh);
-            scene.remove(this.glow);
-            return;
-        }
-        this.endPos.copy(this.targetRef.group.position);
-        this.endPos.y = 0.5;
-        this.progress += delta * this.speed;
-        if (this.progress >= 1) {
-            this.hit();
-            return;
-        }
-        const currentPos = new THREE.Vector3().lerpVectors(this.startPos, this.endPos, this.progress);
-        this.mesh.position.copy(currentPos);
-        this.glow.position.copy(currentPos);
-        this.mesh.rotation.x += delta * 15;
-        this.mesh.rotation.z += delta * 10;
-    }
-    
-    hit() {
-        if (!this.active) return;
-        this.active = false;
-        if (!this.targetRef.isDead) {
-            this.targetRef.health -= this.damage;
-            if (this.targetRef.updateHealthBar) {
-                this.targetRef.updateHealthBar();
-            }
-            if (window.currentTarget === this.targetRef) {
-                window.showTarget(this.targetRef);
-            }
-            this.createExplosion();
-            console.log(`💥 Ataque a ${this.targetRef.type || 'objeto'} (${Math.floor(this.targetRef.health)} HP)`);
-            if (this.targetRef.health <= 0) {
-                if (this.targetRef.die) {
-                    this.targetRef.die();
-                }
-                if (window.currentTarget === this.targetRef) {
-                    window.currentTarget = null;
-                    targetUI.style.display = 'none';
-                }
-            }
-            playerAttackTarget = this.targetRef;
-            setTimeout(() => { playerAttackTarget = null; }, 2000);
-        }
-        scene.remove(this.mesh);
-        scene.remove(this.glow);
-    }
-    
-    createExplosion() {
-        const color = 0x44ff88;
-        const pos = this.mesh.position.clone();
-        for (let i = 0; i < 8; i++) {
-            const size = 0.03 + Math.random() * 0.04;
-            const geo = new THREE.SphereGeometry(size, 4, 4);
-            const mat = new THREE.MeshBasicMaterial({
-                color: color,
-                transparent: true,
-                opacity: 0.6
-            });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.copy(pos);
-            p.position.y = 0.5;
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 1 + Math.random() * 2;
-            p.userData.vel = new THREE.Vector3(
-                Math.cos(angle) * speed,
-                Math.random() * 2,
-                Math.sin(angle) * speed
-            );
-            p.userData.life = 0.3 + Math.random() * 0.3;
-            scene.add(p);
-            const startTime = performance.now();
-            const animateParticle = function() {
-                const elapsed = (performance.now() - startTime) / 1000;
-                if (elapsed > p.userData.life) {
-                    scene.remove(p);
-                    return;
-                }
-                p.position.x += p.userData.vel.x * 0.02;
-                p.position.y += p.userData.vel.y * 0.02;
-                p.position.z += p.userData.vel.z * 0.02;
-                p.userData.vel.y -= 0.05;
-                p.material.opacity = 0.6 * (1 - elapsed / p.userData.life);
-                requestAnimationFrame(animateParticle);
-            };
-            animateParticle();
-        }
-    }
-}
-
-// =============================================
 // TORRES
 // =============================================
 class AxieTower {
@@ -766,14 +473,12 @@ class AxieTower {
         this.cooldown = 0;
         this.target = null;
         this.segments = 10;
-        this.type = 'tower';
         
         const scale = tier === 2 ? 1.3 : 1.0;
         const color = isEnemy ? 0xcc4444 : 0x4488cc;
         const emissiveColor = isEnemy ? 0xff4444 : 0x4488ff;
         
         this.group = new THREE.Group();
-        this.group.userData.targetRef = this;
         
         const baseGeo = new THREE.CylinderGeometry(0.9 * scale, 1.1 * scale, 0.3 * scale, 12);
         const baseMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.8, metalness: 0.2 });
@@ -781,7 +486,6 @@ class AxieTower {
         baseMesh.position.y = 0.15 * scale;
         baseMesh.receiveShadow = false;
         baseMesh.castShadow = false;
-        baseMesh.userData.targetRef = this;
         this.group.add(baseMesh);
         
         const bodyGeo = new THREE.SphereGeometry(0.5 * scale, 8, 8);
@@ -790,7 +494,6 @@ class AxieTower {
         body.scale.set(1, 1.2, 0.8);
         body.position.y = 0.9 * scale;
         body.castShadow = false;
-        body.userData.targetRef = this;
         this.group.add(body);
         
         const headGeo = new THREE.SphereGeometry(0.35 * scale, 8, 8);
@@ -799,7 +502,6 @@ class AxieTower {
         head.scale.set(1, 0.9, 0.9);
         head.position.set(0, 1.5 * scale, 0);
         head.castShadow = false;
-        head.userData.targetRef = this;
         this.group.add(head);
         
         const eyeGeo = new THREE.SphereGeometry(0.06 * scale, 8, 8);
@@ -810,11 +512,9 @@ class AxieTower {
         });
         const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
         eyeL.position.set(-0.12 * scale, 1.55 * scale, 0.2 * scale);
-        eyeL.userData.targetRef = this;
         this.group.add(eyeL);
         const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
         eyeR.position.set(0.12 * scale, 1.55 * scale, 0.2 * scale);
-        eyeR.userData.targetRef = this;
         this.group.add(eyeR);
         
         const earGeo = new THREE.ConeGeometry(0.12 * scale, 0.25 * scale, 6);
@@ -823,13 +523,11 @@ class AxieTower {
         earL.position.set(-0.2 * scale, 1.7 * scale, 0);
         earL.rotation.z = -0.2;
         earL.rotation.x = -0.1;
-        earL.userData.targetRef = this;
         this.group.add(earL);
         const earR = new THREE.Mesh(earGeo, earMat);
         earR.position.set(0.2 * scale, 1.7 * scale, 0);
         earR.rotation.z = 0.2;
         earR.rotation.x = 0.1;
-        earR.userData.targetRef = this;
         this.group.add(earR);
         
         const armGeo = new THREE.CylinderGeometry(0.06 * scale, 0.08 * scale, 0.3 * scale, 6);
@@ -838,19 +536,16 @@ class AxieTower {
         armR.position.set(0.35 * scale, 0.9 * scale, 0);
         armR.rotation.z = -0.6;
         armR.rotation.x = 0.2;
-        armR.userData.targetRef = this;
         this.group.add(armR);
         const armL = new THREE.Mesh(armGeo, armMat);
         armL.position.set(-0.35 * scale, 0.9 * scale, 0);
         armL.rotation.z = 0.6;
         armL.rotation.x = -0.2;
-        armL.userData.targetRef = this;
         this.group.add(armL);
         
         this.staffGroup = new THREE.Group();
         this.staffGroup.position.set(0.4 * scale, 0.8 * scale, 0);
         this.staffGroup.rotation.z = -0.3;
-        this.staffGroup.userData.targetRef = this;
         
         const staff = new THREE.Mesh(
             new THREE.CylinderGeometry(0.03 * scale, 0.05 * scale, 1.2 * scale, 8),
@@ -858,7 +553,6 @@ class AxieTower {
         );
         staff.position.y = 0.6 * scale;
         staff.castShadow = false;
-        staff.userData.targetRef = this;
         this.staffGroup.add(staff);
         
         this.gemGeo = new THREE.OctahedronGeometry(0.12 * scale);
@@ -874,7 +568,6 @@ class AxieTower {
         this.gem = new THREE.Mesh(this.gemGeo, this.gemMat);
         this.gem.position.y = 1.2 * scale;
         this.gem.castShadow = false;
-        this.gem.userData.targetRef = this;
         this.staffGroup.add(this.gem);
         
         const ringStaffGeo = new THREE.TorusGeometry(0.15 * scale, 0.02 * scale, 8, 12);
@@ -888,7 +581,6 @@ class AxieTower {
         const ringStaff = new THREE.Mesh(ringStaffGeo, ringStaffMat);
         ringStaff.position.y = 1.2 * scale;
         ringStaff.rotation.x = Math.PI / 2;
-        ringStaff.userData.targetRef = this;
         this.staffGroup.add(ringStaff);
         
         this.group.add(this.staffGroup);
@@ -904,7 +596,6 @@ class AxieTower {
         const ringBase = new THREE.Mesh(ringBaseGeo, ringBaseMat);
         ringBase.position.y = 0.3 * scale;
         ringBase.rotation.x = Math.PI / 2;
-        ringBase.userData.targetRef = this;
         this.group.add(ringBase);
         
         const shieldGeo = new THREE.CylinderGeometry(0.5 * scale, 0.5 * scale, 0.02 * scale, 16);
@@ -915,7 +606,6 @@ class AxieTower {
         });
         const shield = new THREE.Mesh(shieldGeo, shieldMat);
         shield.position.y = 0.35 * scale;
-        shield.userData.targetRef = this;
         this.group.add(shield);
         
         const symbolGeo = new THREE.RingGeometry(0.15 * scale, 0.25 * scale, 12);
@@ -930,7 +620,6 @@ class AxieTower {
         const symbol = new THREE.Mesh(symbolGeo, symbolMat);
         symbol.position.y = 0.36 * scale;
         symbol.rotation.x = -Math.PI / 2;
-        symbol.userData.targetRef = this;
         this.group.add(symbol);
         
         if (tier === 2) {
@@ -944,7 +633,6 @@ class AxieTower {
             const crown = new THREE.Mesh(crownGeo, crownMat);
             crown.position.y = 1.7 * scale;
             crown.rotation.x = Math.PI / 2;
-            crown.userData.targetRef = this;
             this.group.add(crown);
             
             for (let i = 0; i < 4; i++) {
@@ -960,7 +648,6 @@ class AxieTower {
                 spike.position.set(Math.cos(angle) * 0.4 * scale, 1.8 * scale, Math.sin(angle) * 0.4 * scale);
                 spike.rotation.x = Math.PI / 2;
                 spike.rotation.z = angle;
-                spike.userData.targetRef = this;
                 this.group.add(spike);
             }
         }
@@ -973,7 +660,6 @@ class AxieTower {
         });
         const glow = new THREE.Mesh(glowGeo, glowMat);
         glow.position.y = 1 * scale;
-        glow.userData.targetRef = this;
         this.group.add(glow);
         
         const healthBar = createHealthBar(this.segments, this.isEnemy);
@@ -1003,18 +689,8 @@ class AxieTower {
             this.health = 0;
             this.isDead = true;
             this.group.visible = false;
-            for (const proj of this.projectiles) {
-                proj.active = false;
-                scene.remove(proj.mesh);
-                scene.remove(proj.glow);
-            }
-            this.projectiles = [];
             console.log(`💀 Torre ${this.isEnemy ? 'enemiga' : 'aliada'} destruida!`);
         }
-    }
-    
-    die() {
-        this.takeDamage(this.health);
     }
     
     update(delta, enemies) {
@@ -1059,7 +735,7 @@ class AxieTower {
     }
     
     fire() {
-        if (!this.target || this.isDead) return;
+        if (!this.target) return;
         
         const startPos = new THREE.Vector3();
         this.gem.getWorldPosition(startPos);
@@ -1125,8 +801,7 @@ for (let i = 0; i < 20; i++) {
 }
 
 // =============================================
-// INTERFAZ DE USUARIO
-// =============================================
+// INTERFAZ DE USUARIO// =============================================
 const timerDiv = document.createElement('div');
 timerDiv.id = 'timer-display';
 timerDiv.style.cssText = `
@@ -1194,106 +869,6 @@ waveDiv.textContent = '⏳ 15s';
 document.body.appendChild(waveDiv);
 
 // =============================================
-// PANTALLA DE VICTORIA
-// =============================================
-function showVictoryScreen() {
-    if (gameFinished) return;
-    gameFinished = true;
-    
-    // Crear overlay
-    victoryScreen = document.createElement('div');
-    victoryScreen.id = 'victory-screen';
-    victoryScreen.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-        animation: fadeIn 1s ease-out;
-    `;
-    
-    // Título GANASTE
-    const title = document.createElement('div');
-    title.textContent = '🏆 GANASTE 🏆';
-    title.style.cssText = `
-        font-size: 80px;
-        font-weight: bold;
-        color: #ffdd44;
-        text-shadow: 0 0 30px rgba(255,220,68,0.5), 0 0 60px rgba(255,220,68,0.3);
-        font-family: 'Arial Black', sans-serif;
-        animation: pulse 1.5s ease-in-out infinite;
-        margin-bottom: 30px;
-    `;
-    
-    // Subtítulo
-    const subtitle = document.createElement('div');
-    subtitle.textContent = '¡Has destruido el Nexo Enemigo!';
-    subtitle.style.cssText = `
-        font-size: 28px;
-        color: #88ddff;
-        font-family: 'Arial', sans-serif;
-        margin-bottom: 40px;
-        text-shadow: 0 0 20px rgba(136,221,255,0.3);
-    `;
-    
-    // Botón Ir a Inicio
-    const button = document.createElement('button');
-    button.textContent = '🏠 Ir a Inicio';
-    button.style.cssText = `
-        padding: 16px 48px;
-        font-size: 24px;
-        font-weight: bold;
-        background: linear-gradient(135deg, #44ff88, #22aa66);
-        color: #fff;
-        border: none;
-        border-radius: 12px;
-        cursor: pointer;
-        font-family: 'Arial', sans-serif;
-        transition: transform 0.3s, box-shadow 0.3s;
-        box-shadow: 0 0 30px rgba(68,255,136,0.3);
-    `;
-    button.onmouseenter = () => {
-        button.style.transform = 'scale(1.05)';
-        button.style.boxShadow = '0 0 50px rgba(68,255,136,0.5)';
-    };
-    button.onmouseleave = () => {
-        button.style.transform = 'scale(1)';
-        button.style.boxShadow = '0 0 30px rgba(68,255,136,0.3)';
-    };
-    button.onclick = () => {
-        location.reload();
-    };
-    
-    // Añadir estilos de animación
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.9); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-    `;
-    document.head.appendChild(style);
-    
-    victoryScreen.appendChild(title);
-    victoryScreen.appendChild(subtitle);
-    victoryScreen.appendChild(button);
-    document.body.appendChild(victoryScreen);
-    
-    // Detener el juego (pausar actualizaciones)
-    gameFinished = true;
-}
-
-// =============================================
 // MINION
 // =============================================
 class Minion {
@@ -1301,7 +876,6 @@ class Minion {
         this.isEnemy = isEnemy;
         this.tipo = tipo;
         this.formationIndex = formationIndex;
-        this.minionType = tipo;
         this.maxHealth = tipo === 'mage' ? 60 : 100;
         this.health = this.maxHealth;
         this.speed = tipo === 'melee' ? CONFIG.meleeSpeed : CONFIG.mageSpeed;
@@ -1318,18 +892,6 @@ class Minion {
         this.currentVisibleSegments = this.segments;
         this.attackTimer = 0;
         this.isAttacking = false;
-        this.type = 'minion';
-        
-        this.agroTarget = null;
-        this.chaseTimer = 0;
-        this.isChasing = false;
-        this.reevaluationTimer = 0;
-        this.isGhost = false;
-        this.ghostTimer = CONFIG.firstWaveGhostDuration;
-        this.hasAttackedPlayer = false;
-        
-        this.lastAttackTime = 0;
-        this.attackCount = 0;
         
         const scale = 0.5;
         let lightColor, darkColor, eyeColor, cloakColor;
@@ -1359,15 +921,14 @@ class Minion {
         }
         
         this.group = new THREE.Group();
-        this.group.userData.targetRef = this;
         
+        // ========== MODELO DEL MINION ==========
         const bodyGeo = new THREE.SphereGeometry(0.3 * scale, 8, 8);
         const bodyMat = new THREE.MeshStandardMaterial({ color: lightColor, roughness: 0.6 });
         const body = new THREE.Mesh(bodyGeo, bodyMat);
         body.scale.set(0.9, 1.2, 0.8);
         body.position.y = 0.5 * scale;
         body.castShadow = false;
-        body.userData.targetRef = this;
         this.group.add(body);
         
         const cloakGeo = new THREE.ConeGeometry(0.35 * scale, 0.3 * scale, 6);
@@ -1375,7 +936,6 @@ class Minion {
         const cloak = new THREE.Mesh(cloakGeo, cloakMat);
         cloak.position.y = 0.15 * scale;
         cloak.scale.set(1, 0.5, 0.8);
-        cloak.userData.targetRef = this;
         this.group.add(cloak);
         
         const headGeo = new THREE.SphereGeometry(0.22 * scale, 8, 8);
@@ -1384,7 +944,6 @@ class Minion {
         head.scale.set(1, 0.9, 0.9);
         head.position.set(0, 0.9 * scale, 0);
         head.castShadow = false;
-        head.userData.targetRef = this;
         this.group.add(head);
         
         const earGeo = new THREE.ConeGeometry(0.08 * scale, 0.15 * scale, 4);
@@ -1392,41 +951,34 @@ class Minion {
         const earL = new THREE.Mesh(earGeo, earMat);
         earL.position.set(-0.15 * scale, 1.05 * scale, 0);
         earL.rotation.z = -0.2;
-        earL.userData.targetRef = this;
         this.group.add(earL);
         const earR = new THREE.Mesh(earGeo, earMat);
         earR.position.set(0.15 * scale, 1.05 * scale, 0);
         earR.rotation.z = 0.2;
-        earR.userData.targetRef = this;
         this.group.add(earR);
         
         const eyeGeo = new THREE.SphereGeometry(0.035 * scale, 6, 6);
         const eyeMat = new THREE.MeshStandardMaterial({ color: eyeColor, emissive: eyeColor, emissiveIntensity: 0.3 });
         const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
         eyeL.position.set(-0.08 * scale, 0.92 * scale, 0.15 * scale);
-        eyeL.userData.targetRef = this;
         this.group.add(eyeL);
         const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
         eyeR.position.set(0.08 * scale, 0.92 * scale, 0.15 * scale);
-        eyeR.userData.targetRef = this;
         this.group.add(eyeR);
         
         const pupilGeo = new THREE.SphereGeometry(0.015 * scale, 6, 6);
         const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         const pupilL = new THREE.Mesh(pupilGeo, pupilMat);
         pupilL.position.set(-0.08 * scale, 0.90 * scale, 0.18 * scale);
-        pupilL.userData.targetRef = this;
         this.group.add(pupilL);
         const pupilR = new THREE.Mesh(pupilGeo, pupilMat);
         pupilR.position.set(0.08 * scale, 0.90 * scale, 0.18 * scale);
-        pupilR.userData.targetRef = this;
         this.group.add(pupilR);
         
         const noseGeo = new THREE.SphereGeometry(0.025 * scale, 6, 6);
         const noseMat = new THREE.MeshStandardMaterial({ color: 0xff8888 });
         const nose = new THREE.Mesh(noseGeo, noseMat);
         nose.position.set(0, 0.88 * scale, 0.18 * scale);
-        nose.userData.targetRef = this;
         this.group.add(nose);
         
         function createWhisker(x, y, z, rotY, rotZ) {
@@ -1436,7 +988,6 @@ class Minion {
             w.position.set(x, y, z);
             w.rotation.y = rotY;
             w.rotation.z = rotZ;
-            w.userData.targetRef = this;
             return w;
         }
         this.group.add(createWhisker(-0.12 * scale, 0.86 * scale, 0.15 * scale, -0.4, 0));
@@ -1454,7 +1005,6 @@ class Minion {
         const tailMat = new THREE.MeshStandardMaterial({ color: lightColor, roughness: 0.6 });
         const tail = new THREE.Mesh(tailGeo, tailMat);
         tail.castShadow = false;
-        tail.userData.targetRef = this;
         this.group.add(tail);
         
         const armGeo = new THREE.CylinderGeometry(0.04 * scale, 0.05 * scale, 0.25 * scale, 6);
@@ -1463,27 +1013,23 @@ class Minion {
         armR.position.set(0.3 * scale, 0.6 * scale, 0);
         armR.rotation.z = -0.5;
         armR.rotation.x = 0.2;
-        armR.userData.targetRef = this;
         this.group.add(armR);
         const armL = new THREE.Mesh(armGeo, armMat);
         armL.position.set(-0.3 * scale, 0.6 * scale, 0);
         armL.rotation.z = 0.5;
         armL.rotation.x = -0.2;
-        armL.userData.targetRef = this;
         this.group.add(armL);
         
         if (tipo === 'mage') {
             this.staffGroup = new THREE.Group();
             this.staffGroup.position.set(0.35 * scale, 0.55 * scale, 0);
             this.staffGroup.rotation.z = -0.3;
-            this.staffGroup.userData.targetRef = this;
             
             const staff = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.02 * scale, 0.03 * scale, 0.5 * scale, 6),
                 new THREE.MeshStandardMaterial({ color: 0xccaa88, metalness: 0.5 })
             );
             staff.position.y = 0.25 * scale;
-            staff.userData.targetRef = this;
             this.staffGroup.add(staff);
             
             this.mageGem = new THREE.Mesh(
@@ -1497,7 +1043,6 @@ class Minion {
                 })
             );
             this.mageGem.position.y = 0.55 * scale;
-            this.mageGem.userData.targetRef = this;
             this.staffGroup.add(this.mageGem);
             
             this.group.add(this.staffGroup);
@@ -1505,14 +1050,12 @@ class Minion {
             const swordGroup = new THREE.Group();
             swordGroup.position.set(0.35 * scale, 0.5 * scale, 0);
             swordGroup.rotation.z = -0.4;
-            swordGroup.userData.targetRef = this;
             
             const blade = new THREE.Mesh(
                 new THREE.BoxGeometry(0.03 * scale, 0.4 * scale, 0.03 * scale),
                 new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.9, roughness: 0.1 })
             );
             blade.position.y = 0.25 * scale;
-            blade.userData.targetRef = this;
             swordGroup.add(blade);
             
             const handle = new THREE.Mesh(
@@ -1520,7 +1063,6 @@ class Minion {
                 new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.8 })
             );
             handle.position.y = -0.02 * scale;
-            handle.userData.targetRef = this;
             swordGroup.add(handle);
             
             this.group.add(swordGroup);
@@ -1530,11 +1072,9 @@ class Minion {
         const legMat = new THREE.MeshStandardMaterial({ color: darkColor, roughness: 0.7 });
         const legL = new THREE.Mesh(legGeo, legMat);
         legL.position.set(-0.12 * scale, 0.08 * scale, 0);
-        legL.userData.targetRef = this;
         this.group.add(legL);
         const legR = new THREE.Mesh(legGeo, legMat);
         legR.position.set(0.12 * scale, 0.08 * scale, 0);
-        legR.userData.targetRef = this;
         this.group.add(legR);
         
         const texture = getHealthBarTexture(this.segments, this.segments, this.isEnemy);
@@ -1572,94 +1112,6 @@ class Minion {
         }
     }
     
-    findBestTarget(aliados, enemigos, towers, playerModel) {
-        const enemyMinions = this.isEnemy ? aliados : enemigos;
-        const enemyTowers = towers.filter(t => t.isEnemy !== this.isEnemy && !t.isDead);
-        const enemyNexus = this.isEnemy ? nexusAliado : nexusEnemigo;
-        
-        // Si el nexo enemigo está muerto, no atacarlo
-        if (this.isEnemy && nexusEnemigo.isDead) {
-            return null;
-        }
-        if (!this.isEnemy && nexusAliado.isDead) {
-            return null;
-        }
-        
-        // 1. Axie enemigo (SOLO minions ENEMIGOS)
-        if (this.isEnemy && playerModel && !isPlayerDead) {
-            const distToPlayer = this.group.position.distanceTo(playerModel.position);
-            if (distToPlayer <= CONFIG.agroRange) {
-                if (playerAttackTarget && playerAttackTarget.isEnemy === this.isEnemy) {
-                    return { target: { group: playerModel, isDead: false, health: 999999, type: 'player', isEnemy: true }, type: 'player', dist: distToPlayer };
-                }
-                if (distToPlayer < 3.0) {
-                    return { target: { group: playerModel, isDead: false, health: 999999, type: 'player', isEnemy: true }, type: 'player', dist: distToPlayer };
-                }
-            }
-        }
-        
-        // 2. Enemigo atacando a un aliado
-        let agroTarget = null;
-        let agroDist = Infinity;
-        
-        for (const enemy of enemyMinions) {
-            if (enemy.isDead) continue;
-            if (enemy.target && enemy.target.isEnemy !== this.isEnemy) {
-                const dist = this.group.position.distanceTo(enemy.group.position);
-                if (dist < agroDist && dist <= CONFIG.agroRange) {
-                    agroDist = dist;
-                    agroTarget = enemy;
-                }
-            }
-        }
-        
-        if (agroTarget) {
-            return { target: agroTarget, type: 'minion', dist: agroDist };
-        }
-        
-        // 3. Minions enemigos
-        let closestMinion = null;
-        let closestMinionDist = Infinity;
-        for (const enemy of enemyMinions) {
-            if (enemy.isDead) continue;
-            const dist = this.group.position.distanceTo(enemy.group.position);
-            if (dist < closestMinionDist) {
-                closestMinionDist = dist;
-                closestMinion = enemy;
-            }
-        }
-        
-        if (closestMinion && closestMinionDist <= CONFIG.agroRange) {
-            return { target: closestMinion, type: 'minion', dist: closestMinionDist };
-        }
-        
-        // 4. Torres enemigas (solo si están vivas)
-        let closestTower = null;
-        let closestTowerDist = Infinity;
-        for (const tower of enemyTowers) {
-            if (tower.isDead) continue;
-            const dist = this.group.position.distanceTo(tower.group.position);
-            if (dist < closestTowerDist) {
-                closestTowerDist = dist;
-                closestTower = tower;
-            }
-        }
-        
-        if (closestTower && closestTowerDist < 15) {
-            return { target: closestTower, type: 'tower', dist: closestTowerDist };
-        }
-        
-        // 5. Nexo enemigo (solo si no está muerto)
-        if (!enemyNexus.isDead) {
-            const distToNexus = this.group.position.distanceTo(enemyNexus.group.position);
-            if (distToNexus < 20) {
-                return { target: enemyNexus, type: 'nexus', dist: distToNexus };
-            }
-        }
-        
-        return null;
-    }
-    
     fireMageProjectile(target) {
         const color = this.isEnemy ? 0xff44aa : 0x44aaff;
         const startPos = new THREE.Vector3();
@@ -1695,6 +1147,8 @@ class Minion {
         const startPosCopy = startPos.clone();
         let t = 0;
         const speed = 6;
+        const maxDist = startPosCopy.distanceTo(endPos);
+        const duration = maxDist / speed;
         
         const animateMageProj = () => {
             t += 0.02;
@@ -1702,14 +1156,10 @@ class Minion {
                 scene.remove(proj);
                 scene.remove(glow);
                 if (!target.isDead && t >= 1) {
-                    if (target.type === 'player') {
-                        console.log('⚔️ Minion atacó al Axie (inmortal)');
-                    } else {
-                        target.health -= this.attackDamage;
-                        if (target.updateHealthBar) target.updateHealthBar();
-                        if (target.health <= 0) {
-                            if (target.die) target.die();
-                        }
+                    target.health -= this.attackDamage;
+                    target.updateHealthBar();
+                    if (target.health <= 0) {
+                        target.die();
                     }
                     const expColor = this.isEnemy ? 0xff44aa : 0x44aaff;
                     for (let i = 0; i < 6; i++) {
@@ -1757,110 +1207,49 @@ class Minion {
         animateMageProj();
     }
     
-    update(delta, aliados, enemigos, towers, playerModel) {
-        if (this.isDead || gameFinished) return;
-        
-        this.reevaluationTimer += delta;
-        
-        if (isFirstWave && this.ghostTimer > 0) {
-            this.ghostTimer -= delta;
-            let newZ = this.group.position.z + this.direction * this.speed * delta;
-            if (newZ > CONFIG.minionLimitZ) newZ = CONFIG.minionLimitZ;
-            if (newZ < -CONFIG.minionLimitZ) newZ = -CONFIG.minionLimitZ;
-            this.group.position.z = newZ;
-            return;
-        }
-        
+    update(delta, aliados, enemigos) {
+        if (this.isDead) return;
         this.attackCooldown -= delta;
         
-        if (this.reevaluationTimer >= CONFIG.reevaluationTime || !this.target || this.target.isDead) {
-            this.reevaluationTimer = 0;
-            const bestTarget = this.findBestTarget(aliados, enemigos, towers, playerModel);
-            
-            if (bestTarget) {
-                this.target = bestTarget.target;
-                this.state = 'attack';
-            } else {
-                this.state = 'move';
-                this.target = null;
+        const enemies = this.isEnemy ? aliados : enemigos;
+        let closestEnemy = null;
+        let closestDist = this.attackRange + 1;
+        for (const enemy of enemies) {
+            if (enemy.isDead) continue;
+            const dist = this.group.position.distanceTo(enemy.group.position);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestEnemy = enemy;
             }
         }
         
-        if (this.target && this.target.isDead) {
-            this.target = null;
-            this.state = 'move';
-            this.chaseTimer = 0;
-            this.reevaluationTimer = CONFIG.reevaluationTime;
-        }
-        
-        if (this.target) {
-            const dist = this.group.position.distanceTo(this.target.group.position);
-            
-            if (dist <= this.attackRange) {
-                this.state = 'attack';
-                this.isChasing = false;
-                this.chaseTimer = 0;
-                
-                const angle = Math.atan2(
-                    this.target.group.position.x - this.group.position.x,
-                    this.target.group.position.z - this.group.position.z
-                );
-                this.group.rotation.y = angle;
-                
-                if (this.attackCooldown <= 0) {
-                    if (this.tipo === 'mage') {
-                        this.fireMageProjectile(this.target);
-                        this.attackCooldown = this.attackSpeed;
-                    } else {
-                        if (this.target.type === 'player') {
-                            console.log('⚔️ Minion atacó al Axie (inmortal)');
-                            this.attackCooldown = this.attackSpeed;
-                        } else {
-                            this.target.health -= this.attackDamage;
-                            this.attackCooldown = this.attackSpeed;
-                            if (this.target.updateHealthBar) this.target.updateHealthBar();
-                            if (this.target.health <= 0) {
-                                if (this.target.die) this.target.die();
-                                this.target = null;
-                                this.state = 'move';
-                                this.reevaluationTimer = CONFIG.reevaluationTime;
-                            }
-                        }
-                    }
-                }
-            } else {
-                this.state = 'move';
-                this.isChasing = true;
-                this.chaseTimer += delta;
-                
-                const dx = this.target.group.position.x - this.group.position.x;
-                const dz = this.target.group.position.z - this.group.position.z;
-                const totalDist = Math.sqrt(dx * dx + dz * dz);
-                
-                if (totalDist > 0.5 && this.chaseTimer < CONFIG.chaseTime) {
-                    const moveSpeed = this.speed * delta;
-                    const stepX = (dx / totalDist) * moveSpeed;
-                    const stepZ = (dz / totalDist) * moveSpeed;
-                    
-                    this.group.position.x += stepX;
-                    this.group.position.z += stepZ;
-                    
-                    const angle = Math.atan2(dx, dz);
-                    this.group.rotation.y = angle;
-                } else if (this.chaseTimer >= CONFIG.chaseTime) {
-                    this.target = null;
-                    this.state = 'move';
-                    this.isChasing = false;
-                    this.chaseTimer = 0;
-                    this.reevaluationTimer = CONFIG.reevaluationTime;
-                }
-            }
+        if (closestEnemy && closestDist <= this.attackRange) {
+            this.state = 'attack';
+            this.target = closestEnemy;
         } else {
             this.state = 'move';
+            this.target = null;
+        }
+        
+        if (this.state === 'move') {
             let newZ = this.group.position.z + this.direction * this.speed * delta;
             if (newZ > CONFIG.minionLimitZ) newZ = CONFIG.minionLimitZ;
             if (newZ < -CONFIG.minionLimitZ) newZ = -CONFIG.minionLimitZ;
             this.group.position.z = newZ;
+        } else if (this.state === 'attack' && this.target && !this.target.isDead) {
+            if (this.attackCooldown <= 0) {
+                if (this.tipo === 'mage') {
+                    this.fireMageProjectile(this.target);
+                    this.attackCooldown = this.attackSpeed;
+                } else {
+                    this.target.health -= this.attackDamage;
+                    this.attackCooldown = this.attackSpeed;
+                    this.target.updateHealthBar();
+                    if (this.target.health <= 0) {
+                        this.target.die();
+                    }
+                }
+            }
         }
         
         this.updateHealthBar();
@@ -1894,9 +1283,6 @@ function getWaveComposition() {
 }
 
 function spawnWave() {
-    // Si el juego terminó, no spawnear más oleadas
-    if (gameFinished) return;
-    
     for (let i = aliados.length - 1; i >= 0; i--) {
         if (aliados[i].isDead) {
             if (aliados[i].group.parent) scene.remove(aliados[i].group);
@@ -1918,56 +1304,43 @@ function spawnWave() {
     const spacing = CONFIG.meleeSpacing;
     const mageSpacing = CONFIG.mageSpacing;
     const startZ = -18;
+    const enemyStartZ = 18;
     
     const meleeCount = comp.melee;
     const totalMeleeWidth = (meleeCount - 1) * spacing;
     const mageCount = comp.mage;
     const totalMageWidth = (mageCount - 1) * mageSpacing;
     
+    // ALIADOS (AZULES)
     const aliadoPositions = [];
     
     for (let i = 0; i < meleeCount; i++) {
         const x = -totalMeleeWidth / 2 + i * spacing;
         const z = startZ - i * 0.3;
         aliadoPositions.push({ x, z, tipo: 'melee', index: i });
-        const minion = new Minion(x, z, false, 'melee', i);
-        aliados.push(minion);
+        aliados.push(new Minion(x, z, false, 'melee', i));
     }
     const mageStartZ = startZ - meleeCount * 0.3 - 1.0;
     for (let i = 0; i < mageCount; i++) {
         const x = -totalMageWidth / 2 + i * mageSpacing;
         const z = mageStartZ - i * 0.2;
         aliadoPositions.push({ x, z, tipo: 'mage', index: i + meleeCount });
-        const minion = new Minion(x, z, false, 'mage', i + meleeCount);
-        aliados.push(minion);
+        aliados.push(new Minion(x, z, false, 'mage', i + meleeCount));
     }
 
+    // ENEMIGOS (ROJOS) - ESPEJO del AZUL
     for (const pos of aliadoPositions) {
         const mirrorX = -pos.x;
         const mirrorZ = -pos.z;
-        const minion = new Minion(mirrorX, mirrorZ, true, pos.tipo, pos.index);
-        enemigos.push(minion);
+        enemigos.push(new Minion(mirrorX, mirrorZ, true, pos.tipo, pos.index));
     }
 
     waveNumber++;
     waveCooldown = 0;
-    
-    if (waveNumber === 2) {
-        isFirstWave = true;
-        for (const minion of aliados) {
-            minion.isGhost = true;
-            minion.ghostTimer = CONFIG.firstWaveGhostDuration;
-        }
-        for (const minion of enemigos) {
-            minion.isGhost = true;
-            minion.ghostTimer = CONFIG.firstWaveGhostDuration;
-        }
-        console.log('👻 PRIMERA OLEADA: Minions fantasmales activados');
-    }
 }
 
 // =============================================
-// JUGADOR (AXIE) - INMORTAL
+// JUGADOR (AXIE) - CON ANIMACIÓN DE CAMINAR SIEMPRE
 // =============================================
 let playerModel = null;
 let mixer = null;
@@ -1977,24 +1350,16 @@ let currentAnim = 'idle';
 
 let targetPosition = null;
 let isMovingToTarget = false;
-let playerSpeed = CONFIG.axieSpeed;
+let playerSpeed = CONFIG.axieSpeed; // 1.5
 const playerSpawnPosition = new THREE.Vector3(0, 0, -20);
 
+// Posición suavizada para caminar
 let smoothPlayerPos = new THREE.Vector3(0, 0, -20);
 let smoothTargetPos = new THREE.Vector3(0, 0, -20);
 
 let isDragging = false;
 let isMouseDown = false;
 let mouseDownPos = { x: 0, y: 0 };
-
-let attackCooldown = 0;
-let playerProjectiles = [];
-let isAttacking = false;
-let attackRange = CONFIG.attackRange;
-let attackDamage = CONFIG.attackDamage;
-let attackSpeed = CONFIG.attackSpeed;
-
-let isAutoMovingToTarget = false;
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -2017,8 +1382,7 @@ function getGroundIntersection(event) {
 }
 
 renderer.domElement.addEventListener('mousedown', (e) => {
-    if (e.button === 2) { 
-        isMouseDown = true;
+    if (e.button === 2) { isMouseDown = true;
         isDragging = false;
         mouseDownPos.x = e.clientX;
         mouseDownPos.y = e.clientY;
@@ -2036,16 +1400,12 @@ renderer.domElement.addEventListener('mousemove', (e) => {
 });
 
 renderer.domElement.addEventListener('mouseup', (e) => {
-    if (e.button === 2) { 
-        if (!isDragging && playerModel) {
+    if (e.button === 2) { if (!isDragging && playerModel) {
             const point = getGroundIntersection(e);
             if (point) {
                 targetPosition = point.clone();
                 smoothTargetPos.copy(targetPosition);
                 isMovingToTarget = true;
-                isAutoMovingToTarget = false;
-                window.currentTarget = null;
-                targetUI.style.display = 'none';
             }
         }
         isMouseDown = false;
@@ -2082,11 +1442,13 @@ playerLoader.load(
             if (name.includes('walk')) animWalk = mixer.clipAction(clip);
         });
         
+        // Iniciar con animación idle
         if (animIdle) {
             animIdle.play();
             console.log('🎬 Animación idle iniciada');
         }
         if (animWalk) {
+            // La animación walk se activará cuando se mueva
             console.log('🎬 Animación walk disponible');
         }
         console.log('🎬 Animaciones del jugador cargadas');
@@ -2105,11 +1467,30 @@ playerLoader.load(
     }
 );
 
+function resetPlayer() {
+    if (playerModel) {
+        playerModel.position.copy(playerSpawnPosition);
+        smoothPlayerPos.copy(playerSpawnPosition);
+        targetPosition = null;
+        smoothTargetPos.copy(playerSpawnPosition);
+        isMovingToTarget = false;
+        cameraSmoothPos.copy(playerSpawnPosition);
+        cameraSmoothTarget.copy(playerSpawnPosition);
+        // Volver a idle
+        if (animIdle && animWalk) {
+            animWalk.stop();
+            animIdle.play();
+            currentAnim = 'idle';
+        }
+    }
+}
+
 // =============================================
 // LOOP PRINCIPAL
 // =============================================
 let frameCounter = 0;
 let lastTime = 0;
+let gameTime = 0;
 let realFPS = 0;
 let fpsCounter = 0;
 let fpsTimer = 0;
@@ -2119,14 +1500,6 @@ function gameLoop(time) {
     lastTime = time;
     frameCounter++;
     gameTime += delta;
-
-    if (isFirstWave) {
-        firstWaveTimer += delta;
-        if (firstWaveTimer >= CONFIG.firstWaveGhostDuration) {
-            isFirstWave = false;
-            console.log('👻 Fin de la primera oleada fantasma');
-        }
-    }
 
     timerDiv.textContent = `${Math.floor(gameTime / 60).toString().padStart(2, '0')}:${Math.floor(gameTime % 60).toString().padStart(2, '0')}`;
 
@@ -2139,16 +1512,9 @@ function gameLoop(time) {
         fpsDiv.textContent = `FPS: ${realFPS}`;
     }
 
-    // Si el juego terminó, solo renderizar y no actualizar lógica
-    if (gameFinished) {
-        // Actualizar explosión del nexo
-        nexusEnemigo.updateExplosion(delta);
-        renderer.render(scene, camera);
-        requestAnimationFrame(gameLoop);
-        return;
-    }
-
-    // ===== MOVIMIENTO =====
+    // =============================================
+    // MOVIMIENTO CON ANIMACIÓN DE CAMINAR
+    // =============================================
     if (playerModel && isMovingToTarget && targetPosition) {
         const dx = smoothTargetPos.x - smoothPlayerPos.x;
         const dz = smoothTargetPos.z - smoothPlayerPos.z;
@@ -2158,13 +1524,14 @@ function gameLoop(time) {
             smoothPlayerPos.copy(smoothTargetPos);
             isMovingToTarget = false;
             targetPosition = null;
-            isAutoMovingToTarget = false;
+            // Cambiar a idle
             if (animIdle && animWalk) {
                 animWalk.stop();
                 animIdle.play();
                 currentAnim = 'idle';
             }
         } else {
+            // Movimiento caminando
             const moveSpeed = playerSpeed * delta;
             const stepX = (dx / dist) * moveSpeed;
             const stepZ = (dz / dist) * moveSpeed;
@@ -2181,12 +1548,14 @@ function gameLoop(time) {
                 smoothPlayerPos.z += stepZ;
             }
             
+            // Activar animación de caminar si no está activa
             if (currentAnim !== 'walk' && animWalk) {
-                if (animIdle) animIdle.stop();
+                animIdle.stop();
                 animWalk.play();
                 currentAnim = 'walk';
             }
             
+            // Rotación suave hacia el destino
             const angle = Math.atan2(dx, dz);
             let currentAngle = playerModel.rotation.y;
             let diff = angle - currentAngle;
@@ -2198,94 +1567,15 @@ function gameLoop(time) {
         playerModel.position.copy(smoothPlayerPos);
     } else if (playerModel && smoothPlayerPos) {
         playerModel.position.copy(smoothPlayerPos);
-        if (currentAnim !== 'idle' && animIdle && !isMovingToTarget && !isAutoMovingToTarget) {
+        // Asegurar que está en idle si no se mueve
+        if (currentAnim !== 'idle' && animIdle && !isMovingToTarget) {
             if (animWalk) animWalk.stop();
             animIdle.play();
             currentAnim = 'idle';
         }
     }
 
-    // ===== AUTOATAQUE =====
-    if (playerModel && window.currentTarget && !window.currentTarget.isDead) {
-        if (!window.currentTarget.isEnemy) {
-            if (window.currentTarget) {
-                window.showTarget(window.currentTarget);
-            }
-            attackCooldown = 0;
-            isAttacking = false;
-        } else {
-            const targetPos = window.currentTarget.group.position;
-            const playerPos = playerModel.position;
-            const distToTarget = Math.sqrt(
-                Math.pow(targetPos.x - playerPos.x, 2) + 
-                Math.pow(targetPos.z - playerPos.z, 2)
-            );
-            
-            if (distToTarget <= attackRange) {
-                if (isAutoMovingToTarget) {
-                    isAutoMovingToTarget = false;
-                    isMovingToTarget = false;
-                    targetPosition = null;
-                }
-                
-                const angle = Math.atan2(
-                    targetPos.x - playerPos.x,
-                    targetPos.z - playerPos.z
-                );
-                playerModel.rotation.y = angle;
-                
-                if (currentAnim !== 'idle' && animIdle) {
-                    if (animWalk) animWalk.stop();
-                    animIdle.play();
-                    currentAnim = 'idle';
-                }
-                
-                attackCooldown -= delta;
-                if (attackCooldown <= 0 && !isAttacking) {
-                    const startPos = playerModel.position.clone();
-                    startPos.y = 0.5;
-                    const proj = new PlayerProjectile(startPos, window.currentTarget, attackDamage);
-                    playerProjectiles.push(proj);
-                    attackCooldown = attackSpeed;
-                    isAttacking = true;
-                    setTimeout(() => { isAttacking = false; }, 100);
-                }
-            } else {
-                if (!isMovingToTarget || isAutoMovingToTarget) {
-                    const dx = targetPos.x - playerPos.x;
-                    const dz = targetPos.z - playerPos.z;
-                    const dist = Math.sqrt(dx * dx + dz * dz);
-                    if (dist > 0.5) {
-                        isAutoMovingToTarget = true;
-                        isMovingToTarget = true;
-                        targetPosition = new THREE.Vector3(targetPos.x, 0, targetPos.z);
-                        smoothTargetPos.copy(targetPosition);
-                    }
-                }
-            }
-        }
-    } else {
-        attackCooldown = 0;
-        isAttacking = false;
-        if (!window.currentTarget || window.currentTarget.isDead) {
-            if (isAutoMovingToTarget) {
-                isAutoMovingToTarget = false;
-                isMovingToTarget = false;
-                targetPosition = null;
-            }
-        }
-    }
-    
-    for (let i = playerProjectiles.length - 1; i >= 0; i--) {
-        const proj = playerProjectiles[i];
-        proj.update(delta);
-        if (!proj.active) {
-            playerProjectiles.splice(i, 1);
-        }
-    }
-
-    updateTargetUI();
-
+    // Actualizar mixer de animaciones (siempre)
     if (mixer) {
         mixer.update(delta);
     }
@@ -2310,15 +1600,12 @@ function gameLoop(time) {
 
     if (frameCounter % CONFIG.updateInterval === 0) {
         for (const minion of aliados) {
-            minion.update(delta, aliados, enemigos, towers, playerModel);
+            minion.update(delta, aliados, enemigos);
         }
         for (const minion of enemigos) {
-            minion.update(delta, aliados, enemigos, towers, playerModel);
+            minion.update(delta, aliados, enemigos);
         }
     }
-
-    // Actualizar explosión del nexo
-    nexusEnemigo.updateExplosion(delta);
 
     const aliveAliados = aliados.filter(m => !m.isDead);
     const aliveEnemigos = enemigos.filter(m => !m.isDead);
@@ -2353,182 +1640,14 @@ window.addEventListener('beforeunload', () => {
     renderer.dispose();
 });
 
-// =============================================
-// 🎯 SISTEMA DE TARGET
-// =============================================
-
-const targetUI = document.createElement('div');
-targetUI.id = 'target-ui';
-targetUI.style.cssText = "position:fixed;top:20px;left:20px;width:240px;background:rgba(0,0,0,0.85);border:2px solid rgba(255,200,50,0.6);border-radius:8px;padding:8px 12px;z-index:150;font-family:'Segoe UI',Arial,sans-serif;color:#fff;display:none;pointer-events:none;box-shadow:0 0 30px rgba(0,0,0,0.9);";
-targetUI.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span id="target-name" style="font-weight:bold;font-size:14px;color:#ffcc44;">Enemigo</span><span id="target-level" style="font-size:11px;color:#88aaff;background:rgba(255,255,255,0.1);padding:0 8px;border-radius:4px;">Lv.1</span><span id="target-type" style="font-size:10px;color:#88aaff;background:rgba(255,255,255,0.1);padding:0 8px;border-radius:4px;">Minion</span></div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;color:#ff6644;">❤️</span><div style="flex:1;height:16px;background:rgba(255,255,255,0.12);border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);"><div id="target-health-bar" style="width:100%;height:100%;background:linear-gradient(90deg,#ff2244,#ff6644);border-radius:4px;transition:width 0.2s;"></div></div><span id="target-health-text" style="font-size:11px;font-weight:bold;min-width:50px;text-align:right;color:#fff;">100/100</span></div>';
-document.body.appendChild(targetUI);
-
-window.currentTarget = null;
-
-window.showTarget = function(target) {
-    window.currentTarget = target;
-    if (!target || target.isDead) {
-        targetUI.style.display = 'none';
-        return;
-    }
-    targetUI.style.display = 'block';
-    let nameEl = document.getElementById('target-name');
-    let levelEl = document.getElementById('target-level');
-    let typeEl = document.getElementById('target-type');
-    let healthBar = document.getElementById('target-health-bar');
-    let healthText = document.getElementById('target-health-text');
-    
-    let name = 'Enemigo';
-    let tipoTexto = '';
-    
-    if (target.type === 'minion') {
-        if (target.isEnemy) {
-            if (target.minionType === 'melee' || target.tipo === 'melee') {
-                name = '⚔️ Guerrero Rojo';
-                tipoTexto = 'Melee';
-            } else if (target.minionType === 'mage' || target.tipo === 'mage') {
-                name = '🧙 Mago Rojo';
-                tipoTexto = 'Mago';
-            } else {
-                name = '🔴 Minion Enemigo';
-                tipoTexto = 'Minion';
-            }
-        } else {
-            if (target.minionType === 'melee' || target.tipo === 'melee') {
-                name = '🛡️ Guerrero Azul';
-                tipoTexto = 'Melee';
-            } else if (target.minionType === 'mage' || target.tipo === 'mage') {
-                name = '🔮 Mago Azul';
-                tipoTexto = 'Mago';
-            } else {
-                name = '🔵 Minion Aliado';
-                tipoTexto = 'Minion';
-            }
-        }
-    } else if (target.type === 'tower') {
-        if (target.isEnemy) {
-            name = '🗼 Torre Enemiga';
-            tipoTexto = 'Torre';
-        } else {
-            name = '🏰 Torre Aliada';
-            tipoTexto = 'Torre';
-        }
-    } else if (target.type === 'nexus') {
-        if (target.isEnemy) {
-            name = '🔥 Nexo Enemigo';
-            tipoTexto = 'Nexo';
-        } else {
-            name = '💎 Nexo Aliado';
-            tipoTexto = 'Nexo';
-        }
-    } else if (target.type === 'player') {
-        name = '🦊 Axie (Inmortal)';
-        tipoTexto = 'Jugador';
-    }
-    
-    nameEl.textContent = name;
-    levelEl.textContent = 'Lv.1';
-    typeEl.textContent = tipoTexto;
-    
-    let pct = (target.health / target.maxHealth) * 100;
-    healthBar.style.width = Math.max(0, pct) + '%';
-    healthText.textContent = Math.floor(target.health) + '/' + target.maxHealth;
-};
-
-window.updateTargetUI = function() {
-    if (window.currentTarget && !window.currentTarget.isDead) {
-        window.showTarget(window.currentTarget);
-    } else if (window.currentTarget) {
-        window.currentTarget = null;
-        targetUI.style.display = 'none';
-    }
-};
-
-window.getTargetFromClick = function(event) {
-    let rect = renderer.domElement.getBoundingClientRect();
-    let mouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    let raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-    let selectables = [];
-    let allEntities = [].concat(enemigos, aliados, towers, [nexusAliado, nexusEnemigo]);
-    if (playerModel) {
-        playerModel.traverse(function(child) {
-            if (child.isMesh) selectables.push(child);
-        });
-    }
-    for (let i = 0; i < allEntities.length; i++) {
-        let entity = allEntities[i];
-        if (entity.isDead || !entity.group) continue;
-        entity.group.traverse(function(child) {
-            if (child.isMesh) selectables.push(child);
-        });
-    }
-    let intersects = raycaster.intersectObjects(selectables);
-    if (intersects.length > 0) {
-        let parent = intersects[0].object;
-        while (parent) {
-            if (parent.userData && parent.userData.targetRef) return parent.userData.targetRef;
-            parent = parent.parent;
-        }
-        if (playerModel && intersects[0].object.parent === playerModel) {
-            return { 
-                group: playerModel, 
-                isDead: false, 
-                health: playerHealth, 
-                maxHealth: playerMaxHealth, 
-                type: 'player',
-                isEnemy: true,
-                updateHealthBar: function() {},
-                die: function() {}
-            };
-        }
-    }
-    return null;
-};
-
-renderer.domElement.addEventListener('mousedown', function(e) {
-    if (e.button === 0 && playerModel) {
-        let target = window.getTargetFromClick(e);
-        if (target && !target.isDead) {
-            window.showTarget(target);
-            console.log('🎯 Target seleccionado:', target.type || 'objeto', target.isEnemy ? '(Enemigo)' : '(Aliado)');
-            isMovingToTarget = false;
-            targetPosition = null;
-            isAutoMovingToTarget = false;
-            return;
-        }
-        if (window.currentTarget) {
-            window.currentTarget = null;
-            targetUI.style.display = 'none';
-            console.log('❌ Target cancelado');
-        }
-    } else if (e.button === 2 && window.currentTarget) {
-        window.currentTarget = null;
-        targetUI.style.display = 'none';
-        console.log('❌ Target cancelado (click derecho)');
-    }
-});
-
-console.log('✅ SISTEMA DE TARGET CARGADO CORRECTAMENTE');
-console.log('⚔️ AUTOATAQUE ACTIVADO: Rango ' + CONFIG.attackRange + ', Daño ' + CONFIG.attackDamage + ', Velocidad ' + CONFIG.attackSpeed);
-console.log('🔹 Solo ataca a enemigos');
-console.log('🔹 Movimiento automático hacia el target');
-console.log('🔹 Click derecho para mover al Axie');
-console.log('🔹 MINIONS: Comportamiento League of Legends CORREGIDO');
-console.log('   - PRIORIDAD #1: Axie enemigo si está en rango de agro - SOLO minions ENEMIGOS');
-console.log('   - PRIORIDAD #2: Enemigo atacando a un aliado (agro)');
-console.log('   - PRIORIDAD #3: Minions enemigos');
-console.log('   - PRIORIDAD #4: Torres enemigas (solo si están vivas)');
-console.log('   - Reevaluación cada ' + CONFIG.reevaluationTime + ' segundos');
-console.log('   - Persecución por ' + CONFIG.chaseTime + ' segundos');
-console.log('🔹 TORRES: Mueren correctamente al llegar a 0 HP');
-console.log('🔹 NEXO: Animación de explosión al destruirse');
-console.log('🔹 VICTORIA: Pantalla de "GANASTE" al destruir el nexo enemigo');
-console.log('🔹 Axie del jugador es INMORTAL');
-console.log('🔹 Minions ALIADOS NO atacan al Axie del jugador');
+console.log('');
+console.log('🐱 NEXUS ENGINE - ANIMACIÓN DE CAMINAR SIEMPRE');
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+console.log('📋 Mejoras aplicadas:');
+console.log('  ✅ Animación de caminar desde el segundo 0');
+console.log('  ✅ Velocidad 1.5');
+console.log('  ✅ Transición suave entre idle y walk');
+console.log('');
 
 if (playerModel) {
     cameraSmoothPos.copy(playerModel.position);
@@ -2536,3 +1655,148 @@ if (playerModel) {
 }
 updateCameraPosition();
 requestAnimationFrame(gameLoop);
+
+
+// =============================================
+// 🧠 VISOR DE MEMORIA - DEBAJO DE FPS
+// =============================================
+
+// Crear el elemento de memoria
+const memoryDiv = document.createElement('div');
+memoryDiv.id = 'memory-display';
+memoryDiv.style.cssText = `
+    position: fixed;
+    top: 46px;
+    right: 20px;
+    color: #44ff88;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    font-weight: bold;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 4px 12px;
+    border-radius: 6px;
+    z-index: 100;
+    pointer-events: none;
+    border: 1px solid rgba(68, 255, 136, 0.2);
+    min-width: 140px;
+    text-align: right;
+    line-height: 1.5;
+    transition: all 0.3s ease;
+`;
+memoryDiv.textContent = '🧠 Memoria: 0 MB (0%)';
+document.body.appendChild(memoryDiv);
+
+// Función para obtener el estado de la memoria
+function getMemoryStatus() {
+    try {
+        // Usar la API de memoria de Chrome
+        if (window.performance && window.performance.memory) {
+            const mem = window.performance.memory;
+            const usedMB = (mem.usedJSHeapSize / 1048576).toFixed(1);
+            const totalMB = (mem.jsHeapSizeLimit / 1048576).toFixed(0);
+            const percent = ((mem.usedJSHeapSize / mem.jsHeapSizeLimit) * 100).toFixed(1);
+            return {
+                used: usedMB,
+                total: totalMB,
+                percent: percent
+            };
+        }
+        // Fallback: contar objetos en la escena
+        else if (typeof scene !== 'undefined' && scene.children) {
+            const total = scene.children.length;
+            const meshes = scene.children.filter(c => c.isMesh || c.isSprite).length;
+            const geometries = scene.children.filter(c => c.geometry).length;
+            // Estimar memoria: ~0.5MB por objeto
+            const estimado = (total * 0.3).toFixed(1);
+            return {
+                used: estimado,
+                total: 'N/A',
+                percent: 'N/A',
+                info: `📦 ${total} obj | 🎨 ${meshes} mesh`
+            };
+        }
+        return {
+            used: '?',
+            total: '?',
+            percent: '?'
+        };
+    } catch (e) {
+        return {
+            used: '?',
+            total: '?',
+            percent: '?'
+        };
+    }
+}
+
+// Función para actualizar el visor de memoria
+function updateMemoryDisplay() {
+    const status = getMemoryStatus();
+    let displayText = '';
+    let color = '#44ff88';
+    let borderColor = 'rgba(68, 255, 136, 0.2)';
+    
+    if (status.percent !== 'N/A' && status.percent !== '?') {
+        const p = parseFloat(status.percent);
+        
+        // Cambiar color según el uso
+        if (p > 85) {
+            color = '#ff4444';      // Rojo
+            borderColor = 'rgba(255, 68, 68, 0.4)';
+            memoryDiv.style.boxShadow = '0 0 25px rgba(255, 68, 68, 0.3)';
+        } else if (p > 70) {
+            color = '#ffaa44';      // Amarillo
+            borderColor = 'rgba(255, 170, 68, 0.3)';
+            memoryDiv.style.boxShadow = '0 0 15px rgba(255, 170, 68, 0.2)';
+        } else {
+            color = '#44ff88';      // Verde
+            borderColor = 'rgba(68, 255, 136, 0.2)';
+            memoryDiv.style.boxShadow = 'none';
+        }
+        
+        displayText = `🧠 ${status.used} MB / ${status.total} MB (${status.percent}%)`;
+        memoryDiv.style.color = color;
+        memoryDiv.style.borderColor = borderColor;
+        
+        // Si está crítico, mostrar advertencia
+        if (p > 90) {
+            displayText = '⚠️ ' + displayText;
+        }
+    } else if (status.info) {
+        displayText = `🧠 ${status.used} MB ${status.info}`;
+        memoryDiv.style.color = '#88aaff';
+        memoryDiv.style.borderColor = 'rgba(136, 170, 255, 0.2)';
+    } else {
+        displayText = '🧠 Memoria: N/A';
+        memoryDiv.style.color = '#88aaff';
+        memoryDiv.style.borderColor = 'rgba(136, 170, 255, 0.2)';
+    }
+    
+    memoryDiv.textContent = displayText;
+}
+
+// Actualizar cada 2 segundos
+setInterval(updateMemoryDisplay, 2000);
+
+// Actualizar al cargar
+setTimeout(updateMemoryDisplay, 500);
+
+// También actualizar cuando se detecte cambio en la escena
+if (typeof scene !== 'undefined') {
+    // Cada vez que se agregue un objeto a la escena, actualizar
+    const originalAdd = scene.add;
+    scene.add = function(obj) {
+        originalAdd.call(this, obj);
+        setTimeout(updateMemoryDisplay, 100);
+    };
+}
+
+// Exponer para debugging
+window.memory = {
+    getStatus: getMemoryStatus,
+    update: updateMemoryDisplay
+};
+
+console.log('🧠 Visor de memoria activado');
+console.log('💡 window.memory.getStatus() para ver estado actual');
+console.log('📊 Colores: 🟢 Verde (<70%) | 🟡 Amarillo (70-85%) | 🔴 Rojo (>85%)');
