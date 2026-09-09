@@ -1,5 +1,7 @@
 ﻿import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MenuScreen } from './ui/MenuScreen.js';
+import { getAxieById } from './config/axies.js';
 
 // =============================================
 // CONFIGURACIÓN
@@ -57,6 +59,12 @@ let isFirstWave = true;
 let firstWaveTimer = 0;
 let gameFinished = false;
 let victoryScreen = null;
+let gamePaused = false;
+let pauseMenu = null;
+let selectedAxieId = 'bestia';
+let axieLoaded = false;
+let isGameLoopRunning = false;
+let isGameInitialized = false; // 🔹 NUEVA: CONTROL DE INICIALIZACIÓN
 
 // =============================================
 // CACHE DE TEXTURAS
@@ -167,6 +175,7 @@ function updateCameraPosition() {
     camera.updateProjectionMatrix();
 }
 
+// 🔹 CREAR RENDERER PERO NO AGREGARLO AL DOM HASTA QUE SE NECESITE
 const renderer = new THREE.WebGLRenderer({ 
     antialias: true, 
     powerPreference: "high-performance" 
@@ -176,7 +185,17 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.pixelRatio));
 renderer.shadowMap.enabled = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
-document.body.prepend(renderer.domElement);
+// 🔹 IMPORTANTE: NO agregar al DOM todavía
+// renderer.domElement.style.display = 'none';
+// document.body.prepend(renderer.domElement);
+
+// 🔹 FUNCIÓN PARA AGREGAR EL RENDERER AL DOM SOLO CUANDO SE NECESITE
+function attachRenderer() {
+    if (!renderer.domElement.parentNode) {
+        renderer.domElement.style.display = 'none';
+        document.body.prepend(renderer.domElement);
+    }
+}
 
 // =============================================
 // LUCES
@@ -338,7 +357,6 @@ class Nexus {
             this.isDead = true;
             this.startExplosion();
             console.log(`💀 NEXO ${this.isEnemy ? 'ENEMIGO' : 'ALIADO'} DESTRUIDO!`);
-            // Si es el nexo enemigo, mostrar victoria
             if (this.isEnemy) {
                 showVictoryScreen();
             }
@@ -350,7 +368,6 @@ class Nexus {
         this.isExploding = true;
         this.group.visible = false;
         
-        // Crear explosión de partículas
         const colors = [0xff4444, 0xff8800, 0xffff00, 0xffaa44, 0xff2244];
         const position = this.group.position.clone();
         position.y = 1.5;
@@ -383,7 +400,6 @@ class Nexus {
             this.explosionParticles.push(p);
         }
         
-        // Crear un anillo de choque
         const ringGeo2 = new THREE.TorusGeometry(0.5, 0.1, 12, 24);
         const ringMat2 = new THREE.MeshBasicMaterial({
             color: 0xff8800,
@@ -398,7 +414,6 @@ class Nexus {
         scene.add(ring2);
         this.explosionParticles.push(ring2);
         
-        // Crear destellos de luz
         for (let i = 0; i < 20; i++) {
             const size = 0.02 + Math.random() * 0.06;
             const geo = new THREE.SphereGeometry(size, 4, 4);
@@ -442,7 +457,6 @@ class Nexus {
             const lifeRatio = p.userData.life / p.userData.maxLife;
             
             if (p.geometry.type === 'SphereGeometry') {
-                // Partículas esféricas
                 p.position.x += p.userData.vel.x * delta;
                 p.position.y += p.userData.vel.y * delta;
                 p.position.z += p.userData.vel.z * delta;
@@ -453,7 +467,6 @@ class Nexus {
                 p.rotation.x += p.userData.rotSpeed * delta;
                 p.rotation.y += p.userData.rotSpeed * delta;
             } else if (p.geometry.type === 'TorusGeometry') {
-                // Anillo de choque
                 const scale = 1 + (1 - lifeRatio) * 3;
                 p.scale.set(scale, scale, scale);
                 p.material.opacity = lifeRatio * 0.8;
@@ -1149,6 +1162,7 @@ timerDiv.style.cssText = `
     letter-spacing: 2px;
 `;
 timerDiv.textContent = '00:00';
+timerDiv.style.display = 'none';
 document.body.appendChild(timerDiv);
 
 const fpsDiv = document.createElement('div');
@@ -1169,6 +1183,7 @@ fpsDiv.style.cssText = `
     border: 1px solid rgba(136,170,255,0.2);
 `;
 fpsDiv.textContent = 'FPS: 0';
+fpsDiv.style.display = 'none';
 document.body.appendChild(fpsDiv);
 
 const waveDiv = document.createElement('div');
@@ -1191,107 +1206,8 @@ waveDiv.style.cssText = `
     border: 1px solid rgba(255,170,68,0.2);
 `;
 waveDiv.textContent = '⏳ 15s';
+waveDiv.style.display = 'none';
 document.body.appendChild(waveDiv);
-
-// =============================================
-// PANTALLA DE VICTORIA
-// =============================================
-function showVictoryScreen() {
-    if (gameFinished) return;
-    gameFinished = true;
-    
-    // Crear overlay
-    victoryScreen = document.createElement('div');
-    victoryScreen.id = 'victory-screen';
-    victoryScreen.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-        animation: fadeIn 1s ease-out;
-    `;
-    
-    // Título GANASTE
-    const title = document.createElement('div');
-    title.textContent = '🏆 GANASTE 🏆';
-    title.style.cssText = `
-        font-size: 80px;
-        font-weight: bold;
-        color: #ffdd44;
-        text-shadow: 0 0 30px rgba(255,220,68,0.5), 0 0 60px rgba(255,220,68,0.3);
-        font-family: 'Arial Black', sans-serif;
-        animation: pulse 1.5s ease-in-out infinite;
-        margin-bottom: 30px;
-    `;
-    
-    // Subtítulo
-    const subtitle = document.createElement('div');
-    subtitle.textContent = '¡Has destruido el Nexo Enemigo!';
-    subtitle.style.cssText = `
-        font-size: 28px;
-        color: #88ddff;
-        font-family: 'Arial', sans-serif;
-        margin-bottom: 40px;
-        text-shadow: 0 0 20px rgba(136,221,255,0.3);
-    `;
-    
-    // Botón Ir a Inicio
-    const button = document.createElement('button');
-    button.textContent = '🏠 Ir a Inicio';
-    button.style.cssText = `
-        padding: 16px 48px;
-        font-size: 24px;
-        font-weight: bold;
-        background: linear-gradient(135deg, #44ff88, #22aa66);
-        color: #fff;
-        border: none;
-        border-radius: 12px;
-        cursor: pointer;
-        font-family: 'Arial', sans-serif;
-        transition: transform 0.3s, box-shadow 0.3s;
-        box-shadow: 0 0 30px rgba(68,255,136,0.3);
-    `;
-    button.onmouseenter = () => {
-        button.style.transform = 'scale(1.05)';
-        button.style.boxShadow = '0 0 50px rgba(68,255,136,0.5)';
-    };
-    button.onmouseleave = () => {
-        button.style.transform = 'scale(1)';
-        button.style.boxShadow = '0 0 30px rgba(68,255,136,0.3)';
-    };
-    button.onclick = () => {
-        location.reload();
-    };
-    
-    // Añadir estilos de animación
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.9); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-    `;
-    document.head.appendChild(style);
-    
-    victoryScreen.appendChild(title);
-    victoryScreen.appendChild(subtitle);
-    victoryScreen.appendChild(button);
-    document.body.appendChild(victoryScreen);
-    
-    // Detener el juego (pausar actualizaciones)
-    gameFinished = true;
-}
 
 // =============================================
 // MINION
@@ -1577,7 +1493,6 @@ class Minion {
         const enemyTowers = towers.filter(t => t.isEnemy !== this.isEnemy && !t.isDead);
         const enemyNexus = this.isEnemy ? nexusAliado : nexusEnemigo;
         
-        // Si el nexo enemigo está muerto, no atacarlo
         if (this.isEnemy && nexusEnemigo.isDead) {
             return null;
         }
@@ -1585,7 +1500,6 @@ class Minion {
             return null;
         }
         
-        // 1. Axie enemigo (SOLO minions ENEMIGOS)
         if (this.isEnemy && playerModel && !isPlayerDead) {
             const distToPlayer = this.group.position.distanceTo(playerModel.position);
             if (distToPlayer <= CONFIG.agroRange) {
@@ -1598,7 +1512,6 @@ class Minion {
             }
         }
         
-        // 2. Enemigo atacando a un aliado
         let agroTarget = null;
         let agroDist = Infinity;
         
@@ -1617,7 +1530,6 @@ class Minion {
             return { target: agroTarget, type: 'minion', dist: agroDist };
         }
         
-        // 3. Minions enemigos
         let closestMinion = null;
         let closestMinionDist = Infinity;
         for (const enemy of enemyMinions) {
@@ -1633,7 +1545,6 @@ class Minion {
             return { target: closestMinion, type: 'minion', dist: closestMinionDist };
         }
         
-        // 4. Torres enemigas (solo si están vivas)
         let closestTower = null;
         let closestTowerDist = Infinity;
         for (const tower of enemyTowers) {
@@ -1649,7 +1560,6 @@ class Minion {
             return { target: closestTower, type: 'tower', dist: closestTowerDist };
         }
         
-        // 5. Nexo enemigo (solo si no está muerto)
         if (!enemyNexus.isDead) {
             const distToNexus = this.group.position.distanceTo(enemyNexus.group.position);
             if (distToNexus < 20) {
@@ -1894,7 +1804,6 @@ function getWaveComposition() {
 }
 
 function spawnWave() {
-    // Si el juego terminó, no spawnear más oleadas
     if (gameFinished) return;
     
     for (let i = aliados.length - 1; i >= 0; i--) {
@@ -2055,55 +1964,526 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
-console.log('📦 Cargando Axie del jugador...');
-const playerLoader = new GLTFLoader();
-playerLoader.load(
-    '/axie-3d-assets/assets/mascots/bing.glb',
-    (gltf) => {
-        console.log('✅ Axie del jugador cargado!');
-        playerModel = gltf.scene;
-        playerModel.scale.set(1.2, 1.2, 1.2);
-        playerModel.position.copy(playerSpawnPosition);
-        smoothPlayerPos.copy(playerSpawnPosition);
-        playerModel.castShadow = false;
-        playerModel.traverse((node) => {
-            if (node.isMesh) {
-                node.castShadow = false;
-                node.receiveShadow = false;
-            }
-        });
-        scene.add(playerModel);
-        
-        mixer = new THREE.AnimationMixer(playerModel);
-        const clips = gltf.animations;
-        clips.forEach(clip => {
-            const name = clip.name.toLowerCase();
-            if (name.includes('idle')) animIdle = mixer.clipAction(clip);
-            if (name.includes('walk')) animWalk = mixer.clipAction(clip);
-        });
-        
-        if (animIdle) {
-            animIdle.play();
-            console.log('🎬 Animación idle iniciada');
-        }
-        if (animWalk) {
-            console.log('🎬 Animación walk disponible');
-        }
-        console.log('🎬 Animaciones del jugador cargadas');
-    },
-    undefined,
-    (error) => {
-        console.error('❌ Error cargando Axie del jugador:', error);
-        const fallback = new THREE.Mesh(
-            new THREE.BoxGeometry(1, 1.5, 1),
-            new THREE.MeshStandardMaterial({ color: 0xff4444 })
-        );
-        fallback.position.copy(playerSpawnPosition);
-        scene.add(fallback);
-        playerModel = fallback;
-        smoothPlayerPos.copy(playerSpawnPosition);
+// =============================================
+// FUNCIÓN PARA CARGAR AXIE SELECCIONADO
+// =============================================
+function loadSelectedAxie(axieId) {
+    const axieData = getAxieById(axieId);
+    if (!axieData) {
+        console.warn(`⚠️ Axie ${axieId} no encontrado, usando Bestia por defecto`);
+        loadDefaultAxie();
+        return;
     }
-);
+    
+    console.log(`🔄 Cargando Axie: ${axieData.nombre} desde ${axieData.modelo}`);
+    
+    const loader = new GLTFLoader();
+    loader.load(
+        axieData.modelo,
+        (gltf) => {
+            console.log(`✅ Axie ${axieData.nombre} cargado correctamente`);
+            if (playerModel) {
+                scene.remove(playerModel);
+                if (mixer) {
+                    mixer.stopAllAction();
+                    mixer = null;
+                }
+            }
+            
+            playerModel = gltf.scene;
+            playerModel.scale.set(1.2, 1.2, 1.2);
+            playerModel.position.copy(playerSpawnPosition);
+            smoothPlayerPos.copy(playerSpawnPosition);
+            playerModel.castShadow = false;
+            playerModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = false;
+                    node.receiveShadow = false;
+                }
+            });
+            scene.add(playerModel);
+            
+            mixer = new THREE.AnimationMixer(playerModel);
+            const clips = gltf.animations;
+            clips.forEach(clip => {
+                const name = clip.name.toLowerCase();
+                if (name.includes('idle')) animIdle = mixer.clipAction(clip);
+                if (name.includes('walk')) animWalk = mixer.clipAction(clip);
+            });
+            
+            if (animIdle) {
+                animIdle.play();
+                console.log('🎬 Animación idle iniciada');
+            }
+            if (animWalk) {
+                console.log('🎬 Animación walk disponible');
+            }
+            console.log(`🎬 Animaciones del Axie ${axieData.nombre} cargadas`);
+            
+            cameraSmoothPos.copy(playerModel.position);
+            cameraSmoothTarget.copy(playerModel.position);
+            axieLoaded = true;
+        },
+        undefined,
+        (error) => {
+            console.error(`❌ Error cargando Axie ${axieData.nombre}:`, error);
+            loadDefaultAxie();
+        }
+    );
+}
+
+function loadDefaultAxie() {
+    console.log('📦 Cargando Axie por defecto (Bestia)...');
+    const loader = new GLTFLoader();
+    loader.load(
+        '/axie-3d-assets/assets/mascots/bing.glb',
+        (gltf) => {
+            console.log('✅ Axie por defecto cargado!');
+            if (playerModel) {
+                scene.remove(playerModel);
+                if (mixer) {
+                    mixer.stopAllAction();
+                    mixer = null;
+                }
+            }
+            
+            playerModel = gltf.scene;
+            playerModel.scale.set(1.2, 1.2, 1.2);
+            playerModel.position.copy(playerSpawnPosition);
+            smoothPlayerPos.copy(playerSpawnPosition);
+            playerModel.castShadow = false;
+            playerModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = false;
+                    node.receiveShadow = false;
+                }
+            });
+            scene.add(playerModel);
+            
+            mixer = new THREE.AnimationMixer(playerModel);
+            const clips = gltf.animations;
+            clips.forEach(clip => {
+                const name = clip.name.toLowerCase();
+                if (name.includes('idle')) animIdle = mixer.clipAction(clip);
+                if (name.includes('walk')) animWalk = mixer.clipAction(clip);
+            });
+            
+            if (animIdle) {
+                animIdle.play();
+                console.log('🎬 Animación idle iniciada');
+            }
+            if (animWalk) {
+                console.log('🎬 Animación walk disponible');
+            }
+            console.log('🎬 Animaciones del Axie por defecto cargadas');
+            
+            cameraSmoothPos.copy(playerModel.position);
+            cameraSmoothTarget.copy(playerModel.position);
+            axieLoaded = true;
+        },
+        undefined,
+        (error) => {
+            console.error('❌ Error cargando Axie por defecto:', error);
+            const fallback = new THREE.Mesh(
+                new THREE.BoxGeometry(1, 1.5, 1),
+                new THREE.MeshStandardMaterial({ color: 0xff4444 })
+            );
+            fallback.position.copy(playerSpawnPosition);
+            scene.add(fallback);
+            playerModel = fallback;
+            smoothPlayerPos.copy(playerSpawnPosition);
+            axieLoaded = true;
+        }
+    );
+}
+
+// =============================================
+// PANTALLA DE PAUSA
+// =============================================
+function showPauseMenu() {
+    if (gameFinished || gamePaused) return;
+    gamePaused = true;
+    
+    pauseMenu = document.createElement('div');
+    pauseMenu.id = 'pause-menu';
+    pauseMenu.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.85);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 1500;
+        animation: fadeIn 0.3s ease-out;
+    `;
+    
+    const title = document.createElement('div');
+    title.textContent = '⏸️ PAUSA';
+    title.style.cssText = `
+        font-size: 64px;
+        font-weight: bold;
+        color: #88ddff;
+        text-shadow: 0 0 30px rgba(136,221,255,0.3);
+        font-family: 'Arial Black', sans-serif;
+        margin-bottom: 40px;
+    `;
+    
+    const button = document.createElement('button');
+    button.textContent = '🚪 Volver al Inicio';
+    button.style.cssText = `
+        padding: 16px 48px;
+        font-size: 24px;
+        font-weight: bold;
+        background: linear-gradient(135deg, #ff4444, #cc2222);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        font-family: 'Arial', sans-serif;
+        transition: transform 0.3s, box-shadow 0.3s;
+        box-shadow: 0 0 30px rgba(255,68,68,0.3);
+    `;
+    button.onmouseenter = () => {
+        button.style.transform = 'scale(1.05)';
+        button.style.boxShadow = '0 0 50px rgba(255,68,68,0.5)';
+    };
+    button.onmouseleave = () => {
+        button.style.transform = 'scale(1)';
+        button.style.boxShadow = '0 0 30px rgba(255,68,68,0.3)';
+    };
+    button.onclick = () => {
+        abandonGame();
+    };
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '↩️ Reanudar';
+    cancelBtn.style.cssText = `
+        padding: 12px 36px;
+        font-size: 18px;
+        font-weight: bold;
+        background: rgba(255,255,255,0.1);
+        color: #88aaff;
+        border: 2px solid rgba(136,170,255,0.3);
+        border-radius: 12px;
+        cursor: pointer;
+        font-family: 'Arial', sans-serif;
+        transition: transform 0.3s;
+        margin-top: 15px;
+    `;
+    cancelBtn.onmouseenter = () => {
+        cancelBtn.style.transform = 'scale(1.05)';
+    };
+    cancelBtn.onmouseleave = () => {
+        cancelBtn.style.transform = 'scale(1)';
+    };
+    cancelBtn.onclick = () => {
+        hidePauseMenu();
+    };
+    
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    pauseMenu.appendChild(title);
+    pauseMenu.appendChild(button);
+    pauseMenu.appendChild(cancelBtn);
+    document.body.appendChild(pauseMenu);
+}
+
+function hidePauseMenu() {
+    gamePaused = false;
+    if (pauseMenu && pauseMenu.parentNode) {
+        pauseMenu.parentNode.removeChild(pauseMenu);
+        pauseMenu = null;
+    }
+}
+
+function abandonGame() {
+    gameFinished = true;
+    gamePaused = false;
+    
+    if (pauseMenu && pauseMenu.parentNode) {
+        pauseMenu.parentNode.removeChild(pauseMenu);
+        pauseMenu = null;
+    }
+    
+    if (victoryScreen && victoryScreen.parentNode) {
+        victoryScreen.parentNode.removeChild(victoryScreen);
+        victoryScreen = null;
+    }
+    
+    for (const minion of aliados) {
+        if (minion.group && minion.group.parent) {
+            scene.remove(minion.group);
+        }
+    }
+    for (const minion of enemigos) {
+        if (minion.group && minion.group.parent) {
+            scene.remove(minion.group);
+        }
+    }
+    aliados.length = 0;
+    enemigos.length = 0;
+    
+    for (const proj of playerProjectiles) {
+        if (proj.mesh && proj.mesh.parent) scene.remove(proj.mesh);
+        if (proj.glow && proj.glow.parent) scene.remove(proj.glow);
+    }
+    playerProjectiles.length = 0;
+    
+    for (const tower of towers) {
+        if (tower.group && tower.group.parent) {
+            scene.remove(tower.group);
+        }
+    }
+    towers.length = 0;
+    
+    nexusAliado.isDead = false;
+    nexusAliado.health = nexusAliado.maxHealth;
+    nexusAliado.group.visible = true;
+    nexusAliado.isExploding = false;
+    nexusAliado.updateHealthBar();
+    
+    nexusEnemigo.isDead = false;
+    nexusEnemigo.health = nexusEnemigo.maxHealth;
+    nexusEnemigo.group.visible = true;
+    nexusEnemigo.isExploding = false;
+    nexusEnemigo.updateHealthBar();
+    
+    createTower(-3.5, -18, false, 1);
+    createTower(-3.5, -6, false, 2);
+    createTower(3.5, 18, true, 1);
+    createTower(3.5, 6, true, 2);
+    
+    gameStarted = false;
+    startTimer = CONFIG.SPAWN_DELAY;
+    waveNumber = 1;
+    gameTime = 0;
+    isFirstWave = true;
+    firstWaveTimer = 0;
+    gameFinished = false;
+    axieLoaded = false;
+    isGameLoopRunning = false;
+    
+    // Ocultar renderer al volver al menú
+    if (renderer && renderer.domElement) {
+        renderer.domElement.style.display = 'none';
+    }
+    
+    showMainMenu();
+}
+
+// =============================================
+// PANTALLA DE VICTORIA
+// =============================================
+function showVictoryScreen() {
+    if (gameFinished) return;
+    gameFinished = true;
+    
+    victoryScreen = document.createElement('div');
+    victoryScreen.id = 'victory-screen';
+    victoryScreen.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        animation: fadeIn 1s ease-out;
+    `;
+    
+    const title = document.createElement('div');
+    title.textContent = '🏆 GANASTE 🏆';
+    title.style.cssText = `
+        font-size: 80px;
+        font-weight: bold;
+        color: #ffdd44;
+        text-shadow: 0 0 30px rgba(255,220,68,0.5), 0 0 60px rgba(255,220,68,0.3);
+        font-family: 'Arial Black', sans-serif;
+        animation: pulse 1.5s ease-in-out infinite;
+        margin-bottom: 30px;
+    `;
+    
+    const subtitle = document.createElement('div');
+    subtitle.textContent = '¡Has destruido el Nexo Enemigo!';
+    subtitle.style.cssText = `
+        font-size: 28px;
+        color: #88ddff;
+        font-family: 'Arial', sans-serif;
+        margin-bottom: 40px;
+        text-shadow: 0 0 20px rgba(136,221,255,0.3);
+    `;
+    
+    const button = document.createElement('button');
+    button.textContent = '🏠 Ir a Inicio';
+    button.style.cssText = `
+        padding: 16px 48px;
+        font-size: 24px;
+        font-weight: bold;
+        background: linear-gradient(135deg, #44ff88, #22aa66);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        font-family: 'Arial', sans-serif;
+        transition: transform 0.3s, box-shadow 0.3s;
+        box-shadow: 0 0 30px rgba(68,255,136,0.3);
+    `;
+    button.onmouseenter = () => {
+        button.style.transform = 'scale(1.05)';
+        button.style.boxShadow = '0 0 50px rgba(68,255,136,0.5)';
+    };
+    button.onmouseleave = () => {
+        button.style.transform = 'scale(1)';
+        button.style.boxShadow = '0 0 30px rgba(68,255,136,0.3)';
+    };
+    button.onclick = () => {
+        abandonGame();
+    };
+    
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    victoryScreen.appendChild(title);
+    victoryScreen.appendChild(subtitle);
+    victoryScreen.appendChild(button);
+    document.body.appendChild(victoryScreen);
+    
+    gameFinished = true;
+}
+
+// =============================================
+// FUNCIONES DEL MENÚ PRINCIPAL
+// =============================================
+let menuScreen = null;
+
+function showMainMenu() {
+    // 🔹 DETENER EL LOOP
+    isGameLoopRunning = false;
+    
+    // 🔹 OCULTAR RENDERER
+    if (renderer && renderer.domElement) {
+        renderer.domElement.style.display = 'none';
+    }
+    
+    // Ocultar elementos del juego
+    if (timerDiv) timerDiv.style.display = 'none';
+    if (fpsDiv) fpsDiv.style.display = 'none';
+    if (waveDiv) waveDiv.style.display = 'none';
+    if (targetUI) targetUI.style.display = 'none';
+    
+    // Limpiar menú anterior
+    if (menuScreen) {
+        menuScreen.destroy();
+        menuScreen = null;
+    }
+    
+    menuScreen = new MenuScreen();
+    menuScreen.show(
+        (axieId, mode) => {
+            console.log(`🎮 Iniciando juego con Axie: ${axieId} en modo ${mode}`);
+            selectedAxieId = axieId;
+            startGame(axieId);
+        },
+        (axieId) => {
+            console.log(`✅ Axie seleccionado: ${axieId}`);
+            selectedAxieId = axieId;
+        }
+    );
+}
+
+function startGame(axieId) {
+    // 🔹 AGREGAR EL RENDERER AL DOM
+    attachRenderer();
+    
+    // Mostrar canvas del renderer
+    if (renderer && renderer.domElement) {
+        renderer.domElement.style.display = 'block';
+    }
+    
+    // Mostrar elementos del juego
+    if (timerDiv) timerDiv.style.display = 'block';
+    if (fpsDiv) fpsDiv.style.display = 'block';
+    if (waveDiv) waveDiv.style.display = 'block';
+    
+    // Cargar el modelo del Axie seleccionado (SOLO AHORA)
+    loadSelectedAxie(axieId);
+    
+    // Resetear variables del juego
+    gameFinished = false;
+    gameStarted = false;
+    startTimer = CONFIG.SPAWN_DELAY;
+    waveNumber = 1;
+    gameTime = 0;
+    isFirstWave = true;
+    firstWaveTimer = 0;
+    axieLoaded = false;
+    
+    // Limpiar minions anteriores
+    for (const minion of aliados) {
+        if (minion.group && minion.group.parent) {
+            scene.remove(minion.group);
+        }
+    }
+    for (const minion of enemigos) {
+        if (minion.group && minion.group.parent) {
+            scene.remove(minion.group);
+        }
+    }
+    aliados.length = 0;
+    enemigos.length = 0;
+    
+    // 🔹 INICIAR EL LOOP SOLO SI NO ESTÁ CORRIENDO
+    if (!isGameLoopRunning) {
+        isGameLoopRunning = true;
+        if (playerModel) {
+            cameraSmoothPos.copy(playerModel.position);
+            cameraSmoothTarget.copy(playerModel.position);
+        }
+        updateCameraPosition();
+        requestAnimationFrame(gameLoop);
+    }
+}
+
+// =============================================
+// ESCUCHAR TECLA ESC
+// =============================================
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (gameFinished) return;
+        if (gameStarted) {
+            if (gamePaused) {
+                hidePauseMenu();
+            } else {
+                showPauseMenu();
+            }
+        }
+    }
+});
 
 // =============================================
 // LOOP PRINCIPAL
@@ -2115,6 +2495,24 @@ let fpsCounter = 0;
 let fpsTimer = 0;
 
 function gameLoop(time) {
+    // 🔹 SI EL LOOP DEBE DETENERSE, SALIR
+    if (!isGameLoopRunning) {
+        return;
+    }
+    
+    if (gameFinished) {
+        nexusEnemigo.updateExplosion(0.016);
+        renderer.render(scene, camera);
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
+    if (gamePaused) {
+        renderer.render(scene, camera);
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
     const delta = Math.min((time - lastTime) / 1000, 0.05);
     lastTime = time;
     frameCounter++;
@@ -2139,16 +2537,6 @@ function gameLoop(time) {
         fpsDiv.textContent = `FPS: ${realFPS}`;
     }
 
-    // Si el juego terminó, solo renderizar y no actualizar lógica
-    if (gameFinished) {
-        // Actualizar explosión del nexo
-        nexusEnemigo.updateExplosion(delta);
-        renderer.render(scene, camera);
-        requestAnimationFrame(gameLoop);
-        return;
-    }
-
-    // ===== MOVIMIENTO =====
     if (playerModel && isMovingToTarget && targetPosition) {
         const dx = smoothTargetPos.x - smoothPlayerPos.x;
         const dz = smoothTargetPos.z - smoothPlayerPos.z;
@@ -2205,7 +2593,6 @@ function gameLoop(time) {
         }
     }
 
-    // ===== AUTOATAQUE =====
     if (playerModel && window.currentTarget && !window.currentTarget.isDead) {
         if (!window.currentTarget.isEnemy) {
             if (window.currentTarget) {
@@ -2317,7 +2704,6 @@ function gameLoop(time) {
         }
     }
 
-    // Actualizar explosión del nexo
     nexusEnemigo.updateExplosion(delta);
 
     const aliveAliados = aliados.filter(m => !m.isDead);
@@ -2337,6 +2723,9 @@ function gameLoop(time) {
     requestAnimationFrame(gameLoop);
 }
 
+// =============================================
+// EVENTOS DE VENTANA
+// =============================================
 window.addEventListener('resize', () => {
     const aspect = window.innerWidth / window.innerHeight;
     const frustumSize = 7.2;
@@ -2356,7 +2745,6 @@ window.addEventListener('beforeunload', () => {
 // =============================================
 // 🎯 SISTEMA DE TARGET
 // =============================================
-
 const targetUI = document.createElement('div');
 targetUI.id = 'target-ui';
 targetUI.style.cssText = "position:fixed;top:20px;left:20px;width:240px;background:rgba(0,0,0,0.85);border:2px solid rgba(255,200,50,0.6);border-radius:8px;padding:8px 12px;z-index:150;font-family:'Segoe UI',Arial,sans-serif;color:#fff;display:none;pointer-events:none;box-shadow:0 0 30px rgba(0,0,0,0.9);";
@@ -2529,10 +2917,26 @@ console.log('🔹 NEXO: Animación de explosión al destruirse');
 console.log('🔹 VICTORIA: Pantalla de "GANASTE" al destruir el nexo enemigo');
 console.log('🔹 Axie del jugador es INMORTAL');
 console.log('🔹 Minions ALIADOS NO atacan al Axie del jugador');
+console.log('🔹 ESC: Abre menú de pausa con "Volver al Inicio"');
+console.log('🔹 Selección de Axie: Carga el modelo del Axie elegido');
+console.log('🔹 Canvas oculto al inicio (sin flash)');
+console.log('🔹 El Axie se carga SOLO cuando se selecciona en el menú');
 
-if (playerModel) {
-    cameraSmoothPos.copy(playerModel.position);
-    cameraSmoothTarget.copy(playerModel.position);
-}
-updateCameraPosition();
-requestAnimationFrame(gameLoop);
+// =============================================
+// INICIAR CON EL MENÚ PRINCIPAL (AL FINAL DEL ARCHIVO)
+// =============================================
+document.addEventListener('DOMContentLoaded', () => {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'none';
+    }
+    
+    // Ocultar elementos del juego al inicio
+    if (timerDiv) timerDiv.style.display = 'none';
+    if (fpsDiv) fpsDiv.style.display = 'none';
+    if (waveDiv) waveDiv.style.display = 'none';
+    if (targetUI) targetUI.style.display = 'none';
+    
+    // Mostrar menú principal
+    showMainMenu();
+});
