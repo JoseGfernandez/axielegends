@@ -1,7 +1,7 @@
-﻿import * as THREE from 'three';
+﻿﻿import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MenuScreen } from './ui/MenuScreen.js';
-import { getAxieById } from './config/axies.js';
+import { getAxieById, getAllAxies } from './config/axies.js';
 
 // =============================================
 // CONFIGURACIÓN
@@ -63,8 +63,7 @@ let gamePaused = false;
 let pauseMenu = null;
 let selectedAxieId = 'bestia';
 let axieLoaded = false;
-let isGameLoopRunning = false;
-let isGameInitialized = false; // 🔹 NUEVA: CONTROL DE INICIALIZACIÓN
+let currentAxieName = 'Bing';
 
 // =============================================
 // CACHE DE TEXTURAS
@@ -175,7 +174,6 @@ function updateCameraPosition() {
     camera.updateProjectionMatrix();
 }
 
-// 🔹 CREAR RENDERER PERO NO AGREGARLO AL DOM HASTA QUE SE NECESITE
 const renderer = new THREE.WebGLRenderer({ 
     antialias: true, 
     powerPreference: "high-performance" 
@@ -185,17 +183,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.pixelRatio));
 renderer.shadowMap.enabled = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
-// 🔹 IMPORTANTE: NO agregar al DOM todavía
-// renderer.domElement.style.display = 'none';
-// document.body.prepend(renderer.domElement);
-
-// 🔹 FUNCIÓN PARA AGREGAR EL RENDERER AL DOM SOLO CUANDO SE NECESITE
-function attachRenderer() {
-    if (!renderer.domElement.parentNode) {
-        renderer.domElement.style.display = 'none';
-        document.body.prepend(renderer.domElement);
-    }
-}
+renderer.domElement.style.display = 'none';
+document.body.prepend(renderer.domElement);
 
 // =============================================
 // LUCES
@@ -1500,6 +1489,7 @@ class Minion {
             return null;
         }
         
+        // Prioridad #1: Axie enemigo (SOLO minions ENEMIGOS atacan al jugador)
         if (this.isEnemy && playerModel && !isPlayerDead) {
             const distToPlayer = this.group.position.distanceTo(playerModel.position);
             if (distToPlayer <= CONFIG.agroRange) {
@@ -1512,6 +1502,7 @@ class Minion {
             }
         }
         
+        // Prioridad #2: Agro (enemigo atacando a un aliado)
         let agroTarget = null;
         let agroDist = Infinity;
         
@@ -1530,6 +1521,7 @@ class Minion {
             return { target: agroTarget, type: 'minion', dist: agroDist };
         }
         
+        // Prioridad #3: Minions enemigos más cercanos
         let closestMinion = null;
         let closestMinionDist = Infinity;
         for (const enemy of enemyMinions) {
@@ -1545,6 +1537,7 @@ class Minion {
             return { target: closestMinion, type: 'minion', dist: closestMinionDist };
         }
         
+        // Prioridad #4: Torres enemigas
         let closestTower = null;
         let closestTowerDist = Infinity;
         for (const tower of enemyTowers) {
@@ -1560,6 +1553,7 @@ class Minion {
             return { target: closestTower, type: 'tower', dist: closestTowerDist };
         }
         
+        // Prioridad #5: Nexo enemigo
         if (!enemyNexus.isDead) {
             const distToNexus = this.group.position.distanceTo(enemyNexus.group.position);
             if (distToNexus < 20) {
@@ -1991,7 +1985,8 @@ function loadSelectedAxie(axieId) {
             }
             
             playerModel = gltf.scene;
-            playerModel.scale.set(1.2, 1.2, 1.2);
+            const escala = axieData.escala || 1.2;
+            playerModel.scale.set(escala, escala, escala);
             playerModel.position.copy(playerSpawnPosition);
             smoothPlayerPos.copy(playerSpawnPosition);
             playerModel.castShadow = false;
@@ -2023,6 +2018,9 @@ function loadSelectedAxie(axieId) {
             cameraSmoothPos.copy(playerModel.position);
             cameraSmoothTarget.copy(playerModel.position);
             axieLoaded = true;
+            
+            currentAxieName = axieData.nombre;
+            actualizarHUD(currentAxieName);
         },
         undefined,
         (error) => {
@@ -2080,6 +2078,9 @@ function loadDefaultAxie() {
             cameraSmoothPos.copy(playerModel.position);
             cameraSmoothTarget.copy(playerModel.position);
             axieLoaded = true;
+            
+            currentAxieName = 'Bing';
+            actualizarHUD(currentAxieName);
         },
         undefined,
         (error) => {
@@ -2093,8 +2094,425 @@ function loadDefaultAxie() {
             playerModel = fallback;
             smoothPlayerPos.copy(playerSpawnPosition);
             axieLoaded = true;
+            
+            currentAxieName = 'Bing';
+            actualizarHUD(currentAxieName);
         }
     );
+}
+
+// =============================================
+// ACTUALIZAR HUD
+// =============================================
+function actualizarHUD(nombre) {
+    console.log(`🔄 Actualizando HUD: ${nombre}`);
+    
+    const nameElements = document.querySelectorAll('.name, #hub-name, .player-name, [class*="name"]');
+    nameElements.forEach(el => {
+        if (el.textContent.includes('Puff') || el.textContent.includes('Bing') || el.textContent.includes('Axie') || el.textContent.includes('⚔️')) {
+            el.textContent = `⚔️ ${nombre}`;
+        }
+    });
+    
+    const spanName = document.querySelector('.name');
+    if (spanName) {
+        spanName.textContent = `⚔️ ${nombre}`;
+    }
+    
+    if (window.hubControl && typeof window.hubControl.updateName === 'function') {
+        window.hubControl.updateName(nombre);
+    }
+    
+    if (window.hubInjector && typeof window.hubInjector.updateName === 'function') {
+        window.hubInjector.updateName(nombre);
+    }
+}
+
+// =============================================
+// 🟢 SISTEMA DE AXIE ENEMIGO CON IA
+// =============================================
+let enemyAxie = null;
+let enemyAxieModel = null;
+let enemyAxieMixer = null;
+let enemyAxieAnimIdle = null;
+let enemyAxieAnimWalk = null;
+let enemyAxieCurrentAnim = 'idle';
+let enemyAxieTarget = null;
+let enemyAxieState = 'move';
+let enemyAxieAttackCooldown = 0;
+let enemyAxieVelocityY = 0;
+let enemyAxieIsGrounded = false;
+let enemyAxieJumpCooldown = 0;
+let enemyAxieHealth = 999999;
+let enemyAxieMaxHealth = 999999;
+let enemyAxieIsDead = false;
+let enemyAxieSpawnTimer = 0;
+let enemyAxieSpawned = false;
+const ENEMY_AXIE_SPAWN_DELAY = 3.0;
+
+const ENEMY_AXIE_ATTACK_RANGE = 2.5;
+const ENEMY_AXIE_ATTACK_DAMAGE = 15;
+const ENEMY_AXIE_ATTACK_SPEED = 0.8;
+const ENEMY_AXIE_SPEED = 1.2;
+const ENEMY_AXIE_AGRO_RANGE = 10.0;
+const ENEMY_AXIE_SPAWN_POS = new THREE.Vector3(0, 0, 22);
+
+let enemyHealthBarSprite = null;
+let enemyHealthBarMat = null;
+const ENEMY_HEALTH_SEGMENTS = 10;
+
+function spawnEnemyAxie() {
+    if (enemyAxieSpawned || gameFinished) return;
+    
+    const allAxies = getAllAxies();
+    const availableAxies = allAxies.filter(a => a.id !== selectedAxieId);
+    const randomAxie = availableAxies[Math.floor(Math.random() * availableAxies.length)];
+    
+    console.log(`🤖 Axie Enemigo: ${randomAxie.nombre} (${randomAxie.id})`);
+    
+    enemyAxie = {
+        id: randomAxie.id,
+        nombre: randomAxie.nombre,
+        data: randomAxie,
+        health: enemyAxieHealth,
+        maxHealth: enemyAxieMaxHealth,
+        isDead: false,
+    };
+    
+    const loader = new GLTFLoader();
+    const path = randomAxie.modelo;
+    
+    loader.load(
+        path,
+        (gltf) => {
+            console.log(`✅ Axie enemigo ${randomAxie.nombre} cargado!`);
+            enemyAxieModel = gltf.scene;
+            enemyAxieModel.position.copy(ENEMY_AXIE_SPAWN_POS);
+            const escala = randomAxie.escala || 1.2;
+            enemyAxieModel.scale.set(escala, escala, escala);
+            enemyAxieModel.rotation.y = Math.PI;
+            enemyAxieModel.castShadow = false;
+            enemyAxieModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = false;
+                    node.receiveShadow = false;
+                }
+            });
+            scene.add(enemyAxieModel);
+            
+            enemyAxieMixer = new THREE.AnimationMixer(enemyAxieModel);
+            const clips = gltf.animations;
+            clips.forEach(clip => {
+                const name = clip.name.toLowerCase();
+                if (name.includes('idle')) enemyAxieAnimIdle = enemyAxieMixer.clipAction(clip);
+                if (name.includes('walk')) enemyAxieAnimWalk = enemyAxieMixer.clipAction(clip);
+            });
+            
+            if (enemyAxieAnimIdle) {
+                enemyAxieAnimIdle.play();
+                enemyAxieCurrentAnim = 'idle';
+            }
+            
+            const healthBar = createHealthBar(ENEMY_HEALTH_SEGMENTS, true);
+            healthBar.sprite.position.set(0, 1.8, 0);
+            enemyAxieModel.add(healthBar.sprite);
+            enemyHealthBarSprite = healthBar.sprite;
+            enemyHealthBarMat = healthBar.spriteMat;
+            
+            enemyAxieSpawned = true;
+            console.log(`✅ Axie enemigo ${randomAxie.nombre} listo!`);
+        },
+        undefined,
+        (error) => {
+            console.error(`❌ Error cargando Axie enemigo:`, error);
+            crearEnemyAxieFallback(randomAxie);
+        }
+    );
+}
+
+function crearEnemyAxieFallback(axieData) {
+    console.log('📦 Creando fallback para Axie enemigo...');
+    const group = new THREE.Group();
+    group.position.copy(ENEMY_AXIE_SPAWN_POS);
+    group.rotation.y = Math.PI;
+    
+    const color = new THREE.Color(axieData.color || '#ff4444');
+    const body = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 8, 8),
+        new THREE.MeshStandardMaterial({ color: color, roughness: 0.5 })
+    );
+    body.position.y = 0.6;
+    group.add(body);
+    
+    const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.3, 8, 8),
+        new THREE.MeshStandardMaterial({ color: color, roughness: 0.4 })
+    );
+    head.position.set(0, 1.0, 0.25);
+    group.add(head);
+    
+    scene.add(group);
+    enemyAxieModel = group;
+    enemyAxieSpawned = true;
+    
+    // Barra de vida para el fallback
+    const healthBar = createHealthBar(ENEMY_HEALTH_SEGMENTS, true);
+    healthBar.sprite.position.set(0, 1.8, 0);
+    group.add(healthBar.sprite);
+    enemyHealthBarSprite = healthBar.sprite;
+    enemyHealthBarMat = healthBar.spriteMat;
+}
+
+function updateEnemyHealthBar() {
+    if (!enemyHealthBarMat || !enemyAxie) return;
+    const healthPercent = enemyAxie.health / enemyAxie.maxHealth;
+    const visibleSegments = Math.max(0, Math.min(ENEMY_HEALTH_SEGMENTS, Math.ceil(healthPercent * ENEMY_HEALTH_SEGMENTS)));
+    updateHealthBarSprite(enemyHealthBarMat, ENEMY_HEALTH_SEGMENTS, visibleSegments, true);
+}
+
+function findBestEnemyTarget() {
+    if (!enemyAxieModel) return null;
+    
+    const enemyPos = enemyAxieModel.position;
+    let bestTarget = null;
+    let bestPriority = 0;
+    
+    // 1. JUGADOR
+    if (playerModel && !isPlayerDead) {
+        const distToPlayer = enemyPos.distanceTo(playerModel.position);
+        if (distToPlayer <= ENEMY_AXIE_AGRO_RANGE) {
+            bestTarget = {
+                position: playerModel.position,
+                type: 'player',
+                health: playerHealth,
+                isDead: isPlayerDead,
+                priority: 4,
+                dist: distToPlayer
+            };
+            bestPriority = 4;
+        }
+    }
+    
+    // 2. TORRES ALIADAS
+    if (bestPriority < 4) {
+        let closestTower = null;
+        let closestDist = Infinity;
+        for (const tower of towers) {
+            if (tower.isDead || tower.isEnemy) continue;
+            const dist = enemyPos.distanceTo(tower.position);
+            if (dist < closestDist && dist < 15) {
+                closestDist = dist;
+                closestTower = tower;
+            }
+        }
+        if (closestTower) {
+            bestTarget = {
+                position: closestTower.position,
+                type: 'tower',
+                health: closestTower.health,
+                isDead: closestTower.isDead,
+                ref: closestTower,
+                priority: 3,
+                dist: closestDist
+            };
+            bestPriority = 3;
+        }
+    }
+    
+    // 3. MINIONS ALIADOS
+    if (bestPriority < 3) {
+        let closestMinion = null;
+        let closestDist = Infinity;
+        for (const minion of aliados) {
+            if (minion.isDead) continue;
+            const dist = enemyPos.distanceTo(minion.group.position);
+            if (dist < closestDist && dist < ENEMY_AXIE_AGRO_RANGE) {
+                closestDist = dist;
+                closestMinion = minion;
+            }
+        }
+        if (closestMinion) {
+            bestTarget = {
+                position: closestMinion.group.position,
+                type: 'minion',
+                health: closestMinion.health,
+                isDead: closestMinion.isDead,
+                ref: closestMinion,
+                priority: 2,
+                dist: closestDist
+            };
+            bestPriority = 2;
+        }
+    }
+    
+    // 4. NEXO ALIADO
+    if (bestPriority < 2 && !nexusAliado.isDead) {
+        const distToNexus = enemyPos.distanceTo(nexusAliado.position);
+        if (distToNexus < 20) {
+            bestTarget = {
+                position: nexusAliado.position,
+                type: 'nexus',
+                health: nexusAliado.health,
+                isDead: nexusAliado.isDead,
+                ref: nexusAliado,
+                priority: 1,
+                dist: distToNexus
+            };
+            bestPriority = 1;
+        }
+    }
+    
+    return bestTarget;
+}
+
+function enemyAxieAttack(target) {
+    if (!target || target.isDead) return;
+    
+    if (target.type === 'player') {
+        console.log('⚔️ Axie enemigo atacó al jugador (inmortal)');
+        return;
+    }
+    
+    if (target.type === 'minion' && target.ref) {
+        target.ref.health -= ENEMY_AXIE_ATTACK_DAMAGE;
+        if (target.ref.updateHealthBar) target.ref.updateHealthBar();
+        if (target.ref.health <= 0) {
+            target.ref.die();
+        }
+        console.log(`💥 Axie enemigo atacó a minion (${Math.floor(target.ref.health)} HP)`);
+    }
+    
+    if (target.type === 'tower' && target.ref) {
+        target.ref.health -= ENEMY_AXIE_ATTACK_DAMAGE;
+        if (target.ref.updateHealthBar) target.ref.updateHealthBar();
+        if (target.ref.health <= 0) {
+            target.ref.die();
+        }
+        console.log(`💥 Axie enemigo atacó a torre (${Math.floor(target.ref.health)} HP)`);
+    }
+    
+    if (target.type === 'nexus' && target.ref) {
+        target.ref.health -= ENEMY_AXIE_ATTACK_DAMAGE;
+        if (target.ref.updateHealthBar) target.ref.updateHealthBar();
+        if (target.ref.health <= 0) {
+            target.ref.die();
+        }
+        console.log(`💥 Axie enemigo atacó al nexo!`);
+    }
+}
+
+function updateEnemyAxie(delta) {
+    if (!enemyAxieSpawned || !enemyAxieModel || enemyAxieIsDead || gameFinished) return;
+    
+    // Gravedad
+    enemyAxieJumpCooldown -= delta;
+    enemyAxieVelocityY += CONFIG.gravedad * delta;
+    enemyAxieModel.position.y += enemyAxieVelocityY * delta;
+    
+    if (enemyAxieModel.position.y <= 0) {
+        enemyAxieModel.position.y = 0;
+        enemyAxieVelocityY = 0;
+        enemyAxieIsGrounded = true;
+    } else {
+        enemyAxieIsGrounded = false;
+    }
+    
+    enemyAxieAttackCooldown -= delta;
+    
+    const bestTarget = findBestEnemyTarget();
+    
+    if (bestTarget) {
+        const distToTarget = enemyAxieModel.position.distanceTo(bestTarget.position);
+        
+        if (distToTarget <= ENEMY_AXIE_ATTACK_RANGE) {
+            enemyAxieState = 'attack';
+            enemyAxieTarget = bestTarget;
+            
+            const angle = Math.atan2(
+                bestTarget.position.x - enemyAxieModel.position.x,
+                bestTarget.position.z - enemyAxieModel.position.z
+            );
+            enemyAxieModel.rotation.y = angle;
+            
+            if (enemyAxieAttackCooldown <= 0) {
+                enemyAxieAttack(bestTarget);
+                enemyAxieAttackCooldown = ENEMY_AXIE_ATTACK_SPEED;
+            }
+            
+            if (enemyAxieCurrentAnim !== 'idle' && enemyAxieAnimIdle) {
+                if (enemyAxieAnimWalk) enemyAxieAnimWalk.stop();
+                enemyAxieAnimIdle.play();
+                enemyAxieCurrentAnim = 'idle';
+            }
+        } else {
+            enemyAxieState = 'chase';
+            enemyAxieTarget = bestTarget;
+            
+            const dx = bestTarget.position.x - enemyAxieModel.position.x;
+            const dz = bestTarget.position.z - enemyAxieModel.position.z;
+            const totalDist = Math.sqrt(dx * dx + dz * dz);
+            
+            if (totalDist > 0.5) {
+                const moveSpeed = ENEMY_AXIE_SPEED * delta;
+                const stepX = (dx / totalDist) * moveSpeed;
+                const stepZ = (dz / totalDist) * moveSpeed;
+                
+                enemyAxieModel.position.x += stepX;
+                enemyAxieModel.position.z += stepZ;
+                
+                const angle = Math.atan2(dx, dz);
+                enemyAxieModel.rotation.y = angle;
+                
+                if (enemyAxieCurrentAnim !== 'walk' && enemyAxieAnimWalk) {
+                    if (enemyAxieAnimIdle) enemyAxieAnimIdle.stop();
+                    enemyAxieAnimWalk.play();
+                    enemyAxieCurrentAnim = 'walk';
+                }
+            }
+        }
+    } else {
+        enemyAxieState = 'move';
+        enemyAxieTarget = null;
+        
+        const moveSpeed = ENEMY_AXIE_SPEED * delta * 0.8;
+        enemyAxieModel.position.z -= moveSpeed;
+        
+        if (enemyAxieModel.position.z < -26) {
+            enemyAxieModel.position.z = -26;
+        }
+        
+        if (enemyAxieCurrentAnim !== 'walk' && enemyAxieAnimWalk) {
+            if (enemyAxieAnimIdle) enemyAxieAnimIdle.stop();
+            enemyAxieAnimWalk.play();
+            enemyAxieCurrentAnim = 'walk';
+        }
+    }
+    
+    const limitX = 17;
+    enemyAxieModel.position.x = Math.max(-limitX, Math.min(limitX, enemyAxieModel.position.x));
+    
+    updateEnemyHealthBar();
+    
+    if (enemyAxieMixer) {
+        enemyAxieMixer.update(delta);
+    }
+}
+
+function resetEnemyAxie() {
+    if (enemyAxieModel) {
+        scene.remove(enemyAxieModel);
+        enemyAxieModel = null;
+    }
+    enemyAxie = null;
+    enemyAxieMixer = null;
+    enemyAxieAnimIdle = null;
+    enemyAxieAnimWalk = null;
+    enemyAxieSpawned = false;
+    enemyAxieSpawnTimer = 0;
+    enemyAxieIsDead = false;
+    enemyAxieHealth = enemyAxieMaxHealth;
+    enemyHealthBarSprite = null;
+    enemyHealthBarMat = null;
 }
 
 // =============================================
@@ -2272,9 +2690,11 @@ function abandonGame() {
     firstWaveTimer = 0;
     gameFinished = false;
     axieLoaded = false;
-    isGameLoopRunning = false;
+    currentAxieName = 'Bing';
     
-    // Ocultar renderer al volver al menú
+    // Resetear Axie enemigo
+    resetEnemyAxie();
+    
     if (renderer && renderer.domElement) {
         renderer.domElement.style.display = 'none';
     }
@@ -2382,21 +2802,15 @@ function showVictoryScreen() {
 let menuScreen = null;
 
 function showMainMenu() {
-    // 🔹 DETENER EL LOOP
-    isGameLoopRunning = false;
-    
-    // 🔹 OCULTAR RENDERER
     if (renderer && renderer.domElement) {
         renderer.domElement.style.display = 'none';
     }
     
-    // Ocultar elementos del juego
     if (timerDiv) timerDiv.style.display = 'none';
     if (fpsDiv) fpsDiv.style.display = 'none';
     if (waveDiv) waveDiv.style.display = 'none';
     if (targetUI) targetUI.style.display = 'none';
     
-    // Limpiar menú anterior
     if (menuScreen) {
         menuScreen.destroy();
         menuScreen = null;
@@ -2417,23 +2831,20 @@ function showMainMenu() {
 }
 
 function startGame(axieId) {
-    // 🔹 AGREGAR EL RENDERER AL DOM
-    attachRenderer();
-    
-    // Mostrar canvas del renderer
     if (renderer && renderer.domElement) {
         renderer.domElement.style.display = 'block';
     }
     
-    // Mostrar elementos del juego
     if (timerDiv) timerDiv.style.display = 'block';
     if (fpsDiv) fpsDiv.style.display = 'block';
     if (waveDiv) waveDiv.style.display = 'block';
     
-    // Cargar el modelo del Axie seleccionado (SOLO AHORA)
+    // Resetear Axie enemigo antes de empezar
+    resetEnemyAxie();
+    enemyAxieSpawnTimer = 0;
+    
     loadSelectedAxie(axieId);
     
-    // Resetear variables del juego
     gameFinished = false;
     gameStarted = false;
     startTimer = CONFIG.SPAWN_DELAY;
@@ -2443,7 +2854,6 @@ function startGame(axieId) {
     firstWaveTimer = 0;
     axieLoaded = false;
     
-    // Limpiar minions anteriores
     for (const minion of aliados) {
         if (minion.group && minion.group.parent) {
             scene.remove(minion.group);
@@ -2457,16 +2867,12 @@ function startGame(axieId) {
     aliados.length = 0;
     enemigos.length = 0;
     
-    // 🔹 INICIAR EL LOOP SOLO SI NO ESTÁ CORRIENDO
-    if (!isGameLoopRunning) {
-        isGameLoopRunning = true;
-        if (playerModel) {
-            cameraSmoothPos.copy(playerModel.position);
-            cameraSmoothTarget.copy(playerModel.position);
-        }
-        updateCameraPosition();
-        requestAnimationFrame(gameLoop);
+    if (playerModel) {
+        cameraSmoothPos.copy(playerModel.position);
+        cameraSmoothTarget.copy(playerModel.position);
     }
+    updateCameraPosition();
+    requestAnimationFrame(gameLoop);
 }
 
 // =============================================
@@ -2495,11 +2901,6 @@ let fpsCounter = 0;
 let fpsTimer = 0;
 
 function gameLoop(time) {
-    // 🔹 SI EL LOOP DEBE DETENERSE, SALIR
-    if (!isGameLoopRunning) {
-        return;
-    }
-    
     if (gameFinished) {
         nexusEnemigo.updateExplosion(0.016);
         renderer.render(scene, camera);
@@ -2537,6 +2938,9 @@ function gameLoop(time) {
         fpsDiv.textContent = `FPS: ${realFPS}`;
     }
 
+    // =============================================
+    // MOVIMIENTO DEL JUGADOR
+    // =============================================
     if (playerModel && isMovingToTarget && targetPosition) {
         const dx = smoothTargetPos.x - smoothPlayerPos.x;
         const dz = smoothTargetPos.z - smoothPlayerPos.z;
@@ -2593,6 +2997,9 @@ function gameLoop(time) {
         }
     }
 
+    // =============================================
+    // SISTEMA DE TARGET Y ATAQUE DEL JUGADOR
+    // =============================================
     if (playerModel && window.currentTarget && !window.currentTarget.isDead) {
         if (!window.currentTarget.isEnemy) {
             if (window.currentTarget) {
@@ -2677,12 +3084,21 @@ function gameLoop(time) {
         mixer.update(delta);
     }
 
+    // =============================================
+    // INICIO DEL JUEGO
+    // =============================================
     if (!gameStarted) {
         startTimer -= delta;
         waveDiv.textContent = `⏳ ${Math.ceil(startTimer)}s`;
         if (startTimer <= 0) {
             gameStarted = true;
             spawnWave();
+            // Spawnear Axie enemigo 3 segundos después de empezar
+            setTimeout(() => {
+                if (!gameFinished && gameStarted) {
+                    spawnEnemyAxie();
+                }
+            }, ENEMY_AXIE_SPAWN_DELAY * 1000);
         }
         if (playerModel) updateCameraPosition();
         renderer.render(scene, camera);
@@ -2690,11 +3106,17 @@ function gameLoop(time) {
         return;
     }
 
+    // =============================================
+    // ACTUALIZAR TORRES
+    // =============================================
     const enemies = { aliados, enemigos };
     for (const tower of towers) {
         tower.update(delta, enemies);
     }
 
+    // =============================================
+    // ACTUALIZAR MINIONS
+    // =============================================
     if (frameCounter % CONFIG.updateInterval === 0) {
         for (const minion of aliados) {
             minion.update(delta, aliados, enemigos, towers, playerModel);
@@ -2704,8 +3126,18 @@ function gameLoop(time) {
         }
     }
 
+    // =============================================
+    // ACTUALIZAR AXIE ENEMIGO (IA)
+    // =============================================
+    if (gameStarted && !gameFinished) {
+        updateEnemyAxie(delta);
+    }
+
     nexusEnemigo.updateExplosion(delta);
 
+    // =============================================
+    // SISTEMA DE OLEADAS
+    // =============================================
     const aliveAliados = aliados.filter(m => !m.isDead);
     const aliveEnemigos = enemigos.filter(m => !m.isDead);
     if (aliveAliados.length === 0 || aliveEnemigos.length === 0) {
@@ -2921,9 +3353,13 @@ console.log('🔹 ESC: Abre menú de pausa con "Volver al Inicio"');
 console.log('🔹 Selección de Axie: Carga el modelo del Axie elegido');
 console.log('🔹 Canvas oculto al inicio (sin flash)');
 console.log('🔹 El Axie se carga SOLO cuando se selecciona en el menú');
+console.log('🔹 HUD actualiza el nombre del Axie seleccionado');
+console.log('🤖 SISTEMA DE AXIE ENEMIGO CON IA ACTIVADO');
+console.log('   - Aparece 3 segundos después de empezar el juego');
+console.log('   - Prioriza: Jugador > Torres > Minions > Nexo');
 
 // =============================================
-// INICIAR CON EL MENÚ PRINCIPAL (AL FINAL DEL ARCHIVO)
+// INICIAR CON EL MENÚ PRINCIPAL
 // =============================================
 document.addEventListener('DOMContentLoaded', () => {
     const loading = document.getElementById('loading');
@@ -2931,12 +3367,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loading.style.display = 'none';
     }
     
-    // Ocultar elementos del juego al inicio
     if (timerDiv) timerDiv.style.display = 'none';
     if (fpsDiv) fpsDiv.style.display = 'none';
     if (waveDiv) waveDiv.style.display = 'none';
     if (targetUI) targetUI.style.display = 'none';
     
-    // Mostrar menú principal
     showMainMenu();
 });

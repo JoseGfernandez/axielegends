@@ -158,6 +158,20 @@ export class MenuScreen {
         }
         card.dataset.axieId = axie.id;
 
+        // 🔹 EMOJIS PERSONALIZADOS PARA CADA AXIE
+        const emojis = {
+            bing: '🐻',
+            kibo: '🐱',
+            kotaro: '🦊',
+            paladill: '🐉',
+            pomodoro: '🍅',
+            tripp: '🦄',
+            xia: '⭐'
+        };
+
+        // 🔹 ICONO: usar emoji personalizado o el de la habilidad pasiva
+        const iconEmoji = emojis[axie.id] || axie.habilidades?.pasiva?.icono || '🐾';
+
         card.style.cssText = `
             width: 140px;
             padding: 14px;
@@ -178,7 +192,7 @@ export class MenuScreen {
 
         const icon = document.createElement('div');
         icon.style.cssText = `font-size: 40px; margin-bottom: 4px;`;
-        icon.textContent = axie.habilidades.pasiva.icono || '🐾';
+        icon.textContent = iconEmoji;
 
         const name = document.createElement('div');
         name.style.cssText = `
